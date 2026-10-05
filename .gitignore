@@ -1,0 +1,31 @@
+# Dependencies
+node_modules/
+frontend/node_modules/
+dist/
+frontend/dist/
+
+# Python cache & virtual environments
+__pycache__/
+backend/**/__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+.pytest_cache/
+
+# Databases
+*.db
+*.sqlite
+*.sqlite3
+
+# Temporary files
+*.tmp
+.DS_Store
+
+# Uploaded incident snapshots (preserve seed mock sample)
+backend/uploads/*
+!backend/uploads/mock_accident_sample.jpg
+
+# Environment secrets
+.env
+.env.local
