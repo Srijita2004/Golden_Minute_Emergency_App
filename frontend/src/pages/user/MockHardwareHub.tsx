@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Cpu, Activity, Camera, WifiOff, Bell, AlertTriangle, ShieldCheck, RefreshCw } from 'lucide-react';
 import { api, Device } from '../../services/api';
-import { useEmergencyAlert } from '../../context/EmergencyAlertContext';
 
 export const MockHardwareHub: React.FC = () => {
   const [devices, setDevices] = useState<Device[]>([]);
@@ -10,7 +9,6 @@ export const MockHardwareHub: React.FC = () => {
   const [selectedCamera, setSelectedCamera] = useState<string>('');
   const [bpmInput, setBpmInput] = useState<number>(145);
   const [actionLog, setActionLog] = useState<string[]>([]);
-  const { triggerLocalSiren } = useEmergencyAlert();
 
   const addLog = (msg: string) => {
     setActionLog(prev => [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev.slice(0, 15)]);

@@ -11,7 +11,7 @@ export const Navbar: React.FC = () => {
     <header className="sticky top-0 z-40 bg-slate-950/80 backdrop-blur-md border-b border-slate-800/80 px-4 py-3">
       <div className="max-w-7xl mx-auto flex items-center justify-between">
         {/* Brand */}
-        <Link to={user?.role === 'ADMIN' ? "/admin" : "/"} className="flex items-center gap-2.5 group">
+        <Link to={(user?.role?.toUpperCase() === 'ADMIN' || user?.role?.toUpperCase() === 'HOSPITAL') ? "/admin" : "/"} className="flex items-center gap-2.5 group">
           <div className="p-2 bg-gradient-to-tr from-red-600 to-amber-500 rounded-xl shadow-lg shadow-red-500/20 group-hover:scale-105 transition">
             <ShieldAlert className="w-5 h-5 text-white" />
           </div>
@@ -20,7 +20,7 @@ export const Navbar: React.FC = () => {
               GOLDEN MINUTE
             </span>
             <span className="hidden sm:inline-block text-[10px] uppercase font-mono tracking-widest text-slate-400 ml-2 border border-slate-700/60 px-1.5 py-0.5 rounded">
-              {user?.role === 'ADMIN' ? 'HOSPITAL MONITORING' : 'AI Emergency Response'}
+              {(user?.role?.toUpperCase() === 'ADMIN' || user?.role?.toUpperCase() === 'HOSPITAL') ? 'HOSPITAL MONITORING' : 'AI Emergency Response'}
             </span>
           </div>
         </Link>
@@ -29,11 +29,11 @@ export const Navbar: React.FC = () => {
         <div className="flex items-center gap-2 sm:gap-3">
           {user && (
             <span className={`text-[10px] uppercase font-mono tracking-wider px-2 py-0.5 rounded border hidden sm:inline-block ${
-              user.role === 'ADMIN'
+              (user.role?.toUpperCase() === 'ADMIN' || user.role?.toUpperCase() === 'HOSPITAL')
                 ? 'text-indigo-400 bg-indigo-500/10 border-indigo-500/20 font-bold'
                 : 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20'
             }`}>
-              {user.role === 'ADMIN' ? 'ROLE: ADMIN' : 'USER'}
+              {(user.role?.toUpperCase() === 'ADMIN' || user.role?.toUpperCase() === 'HOSPITAL') ? `ROLE: ${user.role.toUpperCase()}` : 'USER'}
             </span>
           )}
 
@@ -48,7 +48,7 @@ export const Navbar: React.FC = () => {
 
           {user ? (
             <>
-              {user.role === 'ADMIN' && (
+              {(user.role?.toUpperCase() === 'ADMIN' || user.role?.toUpperCase() === 'HOSPITAL') && (
                 <Link
                   to="/admin"
                   className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition shadow-md shadow-indigo-600/30"

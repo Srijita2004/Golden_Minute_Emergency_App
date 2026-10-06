@@ -129,8 +129,9 @@ def get_user_incidents(db: Session = Depends(get_db), current_user: User = Depen
 
 @router.get("/{id}", response_model=IncidentOut)
 def get_incident(id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    is_admin_or_hospital = current_user.role.upper() in ["ADMIN", "HOSPITAL", "SUPER_ADMIN"]
     incident = IncidentService.get_incident_by_id(
-        db, id, current_user.user_id, is_admin=(current_user.role == "ADMIN")
+        db, id, current_user.user_id, is_admin=is_admin_or_hospital
     )
     return IncidentOut.model_validate(incident)
 
@@ -147,7 +148,8 @@ def update_incident_status(
         target_status = payload.new_status or payload.status
     if not target_status:
         raise HTTPException(status_code=400, detail="Missing status parameter")
+    is_admin_or_hospital = current_user.role.upper() in ["ADMIN", "HOSPITAL", "SUPER_ADMIN"]
     incident = IncidentService.update_incident_status(
-        db, id, current_user.user_id, target_status.upper(), is_admin=(current_user.role == "ADMIN")
+        db, id, current_user.user_id, target_status.upper(), is_admin=is_admin_or_hospital
     )
     return IncidentOut.model_validate(incident)

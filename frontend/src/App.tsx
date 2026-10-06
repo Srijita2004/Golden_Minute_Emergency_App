@@ -31,7 +31,8 @@ const AdminRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, loading } = useAuth();
   if (loading) return <div className="p-8 text-center text-xs text-slate-500 font-mono">Restoring session...</div>;
   if (!user) return <Navigate to="/login" replace />;
-  if (user.role !== 'ADMIN') return <Navigate to="/" replace />;
+  const isAdminOrHospital = user.role?.toUpperCase() === 'ADMIN' || user.role?.toUpperCase() === 'HOSPITAL';
+  if (!isAdminOrHospital) return <Navigate to="/" replace />;
   return <>{children}</>;
 };
 
@@ -39,7 +40,8 @@ const UserHomeRoute: React.FC = () => {
   const { user, loading } = useAuth();
   if (loading) return <div className="p-8 text-center text-xs text-slate-500 font-mono">Restoring session...</div>;
   if (!user) return <Navigate to="/login" replace />;
-  if (user.role === 'ADMIN') return <Navigate to="/admin" replace />;
+  const isAdminOrHospital = user.role?.toUpperCase() === 'ADMIN' || user.role?.toUpperCase() === 'HOSPITAL';
+  if (isAdminOrHospital) return <Navigate to="/admin" replace />;
   return <Home />;
 };
 

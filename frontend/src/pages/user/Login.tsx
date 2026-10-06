@@ -17,7 +17,8 @@ export const Login: React.FC = () => {
   // If already authenticated, redirect to appropriate portal
   useEffect(() => {
     if (user) {
-      if (user.role === 'ADMIN') {
+      const isHospitalOrAdmin = user.role?.toUpperCase() === 'ADMIN' || user.role?.toUpperCase() === 'HOSPITAL';
+      if (isHospitalOrAdmin) {
         navigate('/admin', { replace: true });
       } else {
         navigate('/', { replace: true });
@@ -31,7 +32,8 @@ export const Login: React.FC = () => {
       setLoading(true);
       setError('');
       const loggedIn = await login({ email, password });
-      if (loggedIn?.role === 'ADMIN') {
+      const isHospitalOrAdmin = loggedIn?.role?.toUpperCase() === 'ADMIN' || loggedIn?.role?.toUpperCase() === 'HOSPITAL';
+      if (isHospitalOrAdmin) {
         navigate('/admin');
       } else {
         navigate('/');

@@ -24,6 +24,7 @@ class User(Base):
     devices = relationship("Device", back_populates="owner", cascade="all, delete-orphan")
     incidents = relationship("Incident", back_populates="owner", cascade="all, delete-orphan")
     notification_tokens = relationship("NotificationToken", back_populates="user", cascade="all, delete-orphan")
+    web_push_subscriptions = relationship("WebPushSubscription", back_populates="user", cascade="all, delete-orphan")
     audit_logs = relationship("AuditLog", back_populates="actor")
 
 
@@ -63,6 +64,22 @@ class NotificationToken(Base):
     last_updated = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
 
     user = relationship("User", back_populates="notification_tokens")
+
+
+class WebPushSubscription(Base):
+    __tablename__ = "web_push_subscriptions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(String(50), ForeignKey("users.user_id"), nullable=False, index=True)
+    endpoint = Column(Text, unique=True, index=True, nullable=False)
+    p256dh = Column(String(255), nullable=False)
+    auth = Column(String(255), nullable=False)
+    user_agent = Column(String(255), nullable=True)
+    enabled = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+    last_seen = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+
+    user = relationship("User", back_populates="web_push_subscriptions")
 
 
 class Incident(Base):

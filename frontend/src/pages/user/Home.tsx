@@ -10,7 +10,7 @@ import { useEmergencyAlert } from '../../context/EmergencyAlertContext';
 
 export const Home: React.FC = () => {
   const { user } = useAuth();
-  const { activeAlert, triggerLocalSiren } = useEmergencyAlert();
+  const { activeAlert } = useEmergencyAlert();
   const [devices, setDevices] = useState<Device[]>([]);
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [loading, setLoading] = useState(true);
@@ -65,7 +65,7 @@ export const Home: React.FC = () => {
             <span className="text-xs font-black uppercase tracking-wider bg-black/30 px-2 py-0.5 rounded">
               CRITICAL EMERGENCY ACTIVE
             </span>
-            <span className="text-xs font-mono">{activeAlert.data.incidentId}</span>
+            <span className="text-xs font-mono">{activeAlert.incidentId}</span>
           </div>
           <h2 className="text-xl font-extrabold mt-2 flex items-center gap-2">
             <ShieldAlert className="w-6 h-6" />
@@ -74,7 +74,7 @@ export const Home: React.FC = () => {
           <p className="text-xs text-red-100 mt-1">{activeAlert.body}</p>
           <div className="mt-3 flex gap-2">
             <Link
-              to={`/incidents/${activeAlert.data.incidentId}`}
+              to={`/incidents/${activeAlert.incidentId}`}
               className="px-4 py-2 bg-white text-red-700 text-xs font-bold rounded-xl shadow"
             >
               Open Incident View

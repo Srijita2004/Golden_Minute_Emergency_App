@@ -227,6 +227,29 @@ export const api = {
     return res.json();
   },
 
+  async getVapidPublicKey() {
+    const res = await fetch(`${API_BASE}/notifications/vapid-public-key`);
+    return res.json();
+  },
+
+  async subscribeWebPush(payload: { endpoint: string; keys: { p256dh: string; auth: string }; user_agent?: string }) {
+    const res = await fetch(`${API_BASE}/notifications/subscribe-webpush`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+      body: JSON.stringify(payload)
+    });
+    return res.json();
+  },
+
+  async unsubscribeWebPush(endpoint: string) {
+    const res = await fetch(`${API_BASE}/notifications/unsubscribe-webpush`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+      body: JSON.stringify({ endpoint })
+    });
+    return res.json();
+  },
+
   // Mock Hardware
   async mockWristband(deviceId: string, bpm: number, lat?: number, lon?: number) {
     const res = await fetch(`${API_BASE}/mock/wristband/trigger?device_id=${deviceId}&bpm=${bpm}&latitude=${lat || 22.572645}&longitude=${lon || 88.363892}`, {

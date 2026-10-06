@@ -5,7 +5,8 @@ import { useAuth } from '../context/AuthContext';
 
 export const BottomNav: React.FC = () => {
   const { user } = useAuth();
-  if (user?.role === 'ADMIN') return null;
+  const isHospitalOrAdmin = user?.role?.toUpperCase() === 'ADMIN' || user?.role?.toUpperCase() === 'HOSPITAL';
+  if (isHospitalOrAdmin) return null;
 
   const navItems = [
     { to: '/', label: 'Home', icon: Home },

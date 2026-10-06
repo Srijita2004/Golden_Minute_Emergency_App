@@ -1,144 +1,201 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { api } from '../services/api';
 import { useAuth } from './AuthContext';
-
-export interface AlertEvent {
-  alert_id: string;
-  title: string;
-  body: string;
-  data: {
-    incidentId: string;
-    incidentType: string;
-    eventId: string;
-    sourceType: string;
-    latitude?: string;
-    longitude?: string;
-    bpm?: string;
-    confidence?: string;
-  };
-  timestamp: string;
-}
+import { alarmManager, EmergencyAlertPayload } from '../services/EmergencyAlarmManager';
+import { webPushManager } from '../services/webpush';
 
 interface EmergencyAlertContextType {
-  activeAlert: AlertEvent | null;
-  dismissAlert: () => void;
-  triggerLocalSiren: () => void;
-  stopSiren: () => void;
+  activeAlert: EmergencyAlertPayload | null;
   isSirenPlaying: boolean;
+  isAudioUnlocked: boolean;
+  triggerLocalAlarm: (payload: EmergencyAlertPayload) => boolean;
+  acknowledgeAlert: (incidentId?: string) => Promise<void>;
+  stopSiren: () => void;
+  dismissAlert: () => void;
+  unlockAudio: () => Promise<boolean>;
 }
 
 const EmergencyAlertContext = createContext<EmergencyAlertContextType | undefined>(undefined);
 
 export const EmergencyAlertProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { user } = useAuth();
-  const [activeAlert, setActiveAlert] = useState<AlertEvent | null>(null);
-  const [isSirenPlaying, setIsSirenPlaying] = useState<boolean>(false);
-  const seenAlertIds = useRef<Set<string>>(new Set());
-  const audioContextRef = useRef<AudioContext | null>(null);
-  const oscillatorRef = useRef<OscillatorNode | null>(null);
+  const { user, token } = useAuth();
+  const [alarmState, setAlarmState] = useState(() => alarmManager.getState());
+  const initialLoadDoneRef = useRef<boolean>(false);
+  const baselineSeenIdsRef = useRef<Set<string>>(new Set());
 
-  // Initialize Web Audio API siren
-  const playEmergencySiren = () => {
-    try {
-      if (audioContextRef.current) return;
-      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
-      audioContextRef.current = ctx;
-
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-
-      osc.type = 'sawtooth';
-      osc.frequency.setValueAtTime(800, ctx.currentTime);
-
-      // Frequency modulation for siren effect (800Hz <-> 1200Hz)
-      const now = ctx.currentTime;
-      for (let i = 0; i < 20; i++) {
-        osc.frequency.linearRampToValueAtTime(1200, now + i * 0.5 + 0.25);
-        osc.frequency.linearRampToValueAtTime(800, now + i * 0.5 + 0.5);
-      }
-
-      gain.gain.setValueAtTime(0.3, ctx.currentTime);
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start();
-
-      oscillatorRef.current = osc;
-      setIsSirenPlaying(true);
-
-      // Trigger hardware vibration if OS / device allows
-      if ('vibrate' in navigator) {
-        navigator.vibrate([500, 250, 500, 250, 500, 250, 1000]);
-      }
-    } catch (e) {
-      console.log('Audio playback permission pending user gesture:', e);
-    }
-  };
-
-  const stopSiren = () => {
-    try {
-      if (oscillatorRef.current) {
-        oscillatorRef.current.stop();
-        oscillatorRef.current.disconnect();
-        oscillatorRef.current = null;
-      }
-      if (audioContextRef.current) {
-        audioContextRef.current.close();
-        audioContextRef.current = null;
-      }
-    } catch {}
-    setIsSirenPlaying(false);
-  };
-
-  const dismissAlert = () => {
-    stopSiren();
-    setActiveAlert(null);
-  };
-
-  // Poll for real-time emergency events when user is logged in
+  // Subscribe to Alarm Manager updates
   useEffect(() => {
-    if (!user) return;
+    const unsubscribe = alarmManager.subscribe((state) => {
+      setAlarmState(state);
+    });
+    return unsubscribe;
+  }, []);
 
-    // Register web notification token if permitted
-    if ('Notification' in window && Notification.permission === 'default') {
-      Notification.requestPermission();
+  // Initialize Service Worker in background
+  useEffect(() => {
+    webPushManager.registerServiceWorker();
+  }, []);
+
+  // Real-Time SSE Stream with short-polling fallback
+  useEffect(() => {
+    if (!user || !token) {
+      initialLoadDoneRef.current = false;
+      baselineSeenIdsRef.current.clear();
+      return;
     }
 
-    const interval = setInterval(async () => {
+    let isCancelled = false;
+    let eventSource: EventSource | null = null;
+    let pollInterval: any = null;
+
+    // Helper to process an incoming alert event
+    const handleIncomingAlert = (alertEvent: any) => {
+      if (!alertEvent || !alertEvent.data) return;
+      const data = alertEvent.data;
+      const incidentId = data.incidentId;
+      if (!incidentId) return;
+
+      // Deduplication: If this was present before connection established, mark seen without alarming
+      if (!initialLoadDoneRef.current) {
+        baselineSeenIdsRef.current.add(incidentId);
+        return;
+      }
+
+      if (baselineSeenIdsRef.current.has(incidentId)) {
+        return;
+      }
+      baselineSeenIdsRef.current.add(incidentId);
+
+      const payload: EmergencyAlertPayload = {
+        incidentId: incidentId,
+        incidentType: data.incidentType || 'EMERGENCY',
+        sourceType: data.sourceType || 'MONITORING_SYSTEM',
+        title: alertEvent.title || '🚨 EMERGENCY DETECTED',
+        body: alertEvent.body || 'New confirmed emergency incident.',
+        latitude: data.latitude,
+        longitude: data.longitude,
+        bpm: data.bpm,
+        confidence: data.confidence,
+        imageUrl: data.imageUrl,
+        timestamp: alertEvent.timestamp || new Date().toISOString()
+      };
+
+      alarmManager.triggerAlarm(payload);
+
+      // Trigger standard browser notification if permitted and in foreground
+      if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+        try {
+          new Notification(payload.title || '🚨 EMERGENCY DETECTED', {
+            body: payload.body,
+            icon: '/favicon.svg',
+            tag: payload.incidentId
+          });
+        } catch {}
+      }
+    };
+
+    // 1. Initial snapshot fetch to baseline existing historical incidents
+    const initBaseline = async () => {
       try {
         const res = await api.getActiveAlerts();
-        if (res.alerts && res.alerts.length > 0) {
-          const latest = res.alerts[0];
-          if (!seenAlertIds.current.has(latest.alert_id)) {
-            seenAlertIds.current.add(latest.alert_id);
-            setActiveAlert(latest);
-            playEmergencySiren();
-
-            // Browser Notification
-            if ('Notification' in window && Notification.permission === 'granted') {
-              new Notification(latest.title, {
-                body: latest.body,
-                icon: '/favicon.ico',
-                tag: latest.alert_id
-              });
+        if (res.alerts && Array.isArray(res.alerts)) {
+          res.alerts.forEach((a: any) => {
+            if (a.data?.incidentId) {
+              baselineSeenIdsRef.current.add(a.data.incidentId);
             }
-          }
+          });
         }
       } catch (err) {
-        // Silently continue polling
+        console.warn('Could not fetch baseline active alerts:', err);
+      } finally {
+        initialLoadDoneRef.current = true;
       }
-    }, 2500);
+    };
 
-    return () => clearInterval(interval);
-  }, [user]);
+    initBaseline();
+
+    // 2. Establish Real-Time SSE Stream
+    const API_BASE = (import.meta as any).env?.VITE_API_BASE_URL || '/api';
+    const streamUrl = `${API_BASE}/notifications/stream?token=${encodeURIComponent(token)}`;
+
+    try {
+      eventSource = new EventSource(streamUrl);
+
+      eventSource.onopen = () => {
+        console.log('📡 [ALERTS] Real-time emergency SSE stream connected.');
+      };
+
+      eventSource.onmessage = (event) => {
+        if (isCancelled || !event.data) return;
+        try {
+          const alert = JSON.parse(event.data);
+          if (alert.type === 'CONNECTED') return;
+          handleIncomingAlert(alert);
+        } catch (e) {
+          console.error('Failed to parse SSE alert event:', e);
+        }
+      };
+
+      eventSource.onerror = () => {
+        // SSE disconnected, fallback to polling
+        if (eventSource) {
+          eventSource.close();
+          eventSource = null;
+        }
+      };
+    } catch (e) {
+      console.warn('SSE not supported or failed to connect, using polling fallback:', e);
+    }
+
+    // 3. Robust Polling Fallback (every 3.5 seconds)
+    pollInterval = setInterval(async () => {
+      if (isCancelled) return;
+      try {
+        const res = await api.getActiveAlerts();
+        if (res.alerts && Array.isArray(res.alerts)) {
+          res.alerts.forEach((a: any) => {
+            handleIncomingAlert(a);
+          });
+        }
+      } catch {}
+    }, 3500);
+
+    return () => {
+      isCancelled = true;
+      if (eventSource) {
+        eventSource.close();
+      }
+      if (pollInterval) {
+        clearInterval(pollInterval);
+      }
+    };
+  }, [user, token]);
+
+  const acknowledgeAlert = async (incidentId?: string) => {
+    const targetId = incidentId || alarmState.activeAlert?.incidentId;
+    alarmManager.acknowledgeAlarm(targetId);
+
+    // If user is Admin or Hospital, persist ACKNOWLEDGED status to backend
+    if (targetId && user?.role && ['ADMIN', 'HOSPITAL'].includes(user.role.toUpperCase())) {
+      try {
+        await api.updateIncidentStatus(targetId, 'ACKNOWLEDGED');
+      } catch (err) {
+        console.warn('Failed to update status on server:', err);
+      }
+    }
+  };
 
   return (
     <EmergencyAlertContext.Provider
       value={{
-        activeAlert,
-        dismissAlert,
-        triggerLocalSiren: playEmergencySiren,
-        stopSiren,
-        isSirenPlaying
+        activeAlert: alarmState.activeAlert,
+        isSirenPlaying: alarmState.isAlarmActive,
+        isAudioUnlocked: alarmState.isAudioUnlocked,
+        triggerLocalAlarm: (p) => alarmManager.triggerAlarm(p),
+        acknowledgeAlert,
+        stopSiren: () => alarmManager.stopAlarm(),
+        dismissAlert: () => alarmManager.dismissBanner(),
+        unlockAudio: () => alarmManager.unlockAudio()
       }}
     >
       {children}

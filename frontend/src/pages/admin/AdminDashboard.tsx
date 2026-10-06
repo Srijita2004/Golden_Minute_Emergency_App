@@ -3,19 +3,36 @@ import {
   Shield, Users, Cpu, AlertTriangle, Activity, Search,
   RefreshCw, CheckCircle, Clock, Eye, FileText, Bell,
   MapPin, ExternalLink, Filter, CheckCircle2, XCircle, X,
-  Radio, Smartphone, Flame, HeartPulse, Check
+  Radio, Smartphone, Flame, HeartPulse, Check, BellRing,
+  Volume2, VolumeX, ShieldCheck, AlertOctagon
 } from 'lucide-react';
 import { api, AdminStats, getAssetUrl } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
+import { useEmergencyAlert } from '../../context/EmergencyAlertContext';
+import { webPushManager } from '../../services/webpush';
 
 export const AdminDashboard: React.FC = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const {
+    activeAlert,
+    isSirenPlaying,
+    isAudioUnlocked,
+    unlockAudio,
+    stopSiren,
+    acknowledgeAlert
+  } = useEmergencyAlert();
+
   const [activeTab, setActiveTab] = useState<'overview' | 'users' | 'devices' | 'incidents' | 'logs'>('incidents');
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [autoRefresh, setAutoRefresh] = useState(true);
+
+  // Web Push and Emergency Siren Readiness States
+  const [pushStatus, setPushStatus] = useState<'granted' | 'denied' | 'default'>('default');
+  const [isPushSubscribed, setIsPushSubscribed] = useState<boolean>(false);
+  const [isArmingPush, setIsArmingPush] = useState<boolean>(false);
 
   // Tab data states
   const [userList, setUserList] = useState<any[]>([]);
@@ -33,12 +50,44 @@ export const AdminDashboard: React.FC = () => {
   const [selectedIncident, setSelectedIncident] = useState<any | null>(null);
   const [updatingStatusId, setUpdatingStatusId] = useState<string | null>(null);
 
-  // Redirect if not admin
+  // Redirect if not authorized (allow both ADMIN and HOSPITAL)
   useEffect(() => {
-    if (user && user.role !== 'ADMIN') {
-      navigate('/');
+    if (user) {
+      const isAuthorized = user.role?.toUpperCase() === 'ADMIN' || user.role?.toUpperCase() === 'HOSPITAL';
+      if (!isAuthorized) {
+        navigate('/');
+      }
     }
-  }, [user]);
+  }, [user, navigate]);
+
+  // Inspect browser Web Push and permission status on mount
+  useEffect(() => {
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      setPushStatus(Notification.permission);
+      webPushManager.getExistingSubscription().then((sub) => {
+        setIsPushSubscribed(!!sub);
+      });
+    }
+  }, []);
+
+  const handleArmEmergencyAlerts = async () => {
+    try {
+      setIsArmingPush(true);
+      // 1. Synchronously unlock Web Audio context in response to user click
+      await unlockAudio();
+
+      // 2. Request Notification permission and subscribe browser to Web Push
+      const res = await webPushManager.subscribe();
+      if (typeof window !== 'undefined' && 'Notification' in window) {
+        setPushStatus(Notification.permission);
+      }
+      setIsPushSubscribed(!!res);
+    } catch (e: any) {
+      console.warn('Emergency alert arming note:', e);
+    } finally {
+      setIsArmingPush(false);
+    }
+  };
 
   const loadData = async (silent = false) => {
     try {
@@ -92,7 +141,14 @@ export const AdminDashboard: React.FC = () => {
   const handleStatusChange = async (incidentId: string, newStatus: string) => {
     try {
       setUpdatingStatusId(incidentId);
-      await api.updateIncidentStatus(incidentId, newStatus);
+      if (newStatus === 'ACKNOWLEDGED') {
+        await acknowledgeAlert(incidentId);
+      } else {
+        await api.updateIncidentStatus(incidentId, newStatus);
+        if (newStatus === 'RESOLVED' && activeAlert?.incidentId === incidentId) {
+          stopSiren();
+        }
+      }
       // Optimistic update
       setIncidentList((prev) =>
         prev.map((inc) => (inc.incident_id === incidentId ? { ...inc, status: newStatus } : inc))
@@ -164,7 +220,7 @@ export const AdminDashboard: React.FC = () => {
               <span className="text-[10px] uppercase font-mono tracking-widest text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20">
                 HOSPITAL & EMERGENCY SURVEILLANCE
               </span>
-              <span className="text-xs text-slate-500 font-mono">ROLE: ADMIN</span>
+              <span className="text-xs text-slate-500 font-mono">ROLE: {user?.role?.toUpperCase() || 'HOSPITAL'}</span>
             </div>
             <h1 className="text-2xl font-black text-white">Hospital Emergency Monitoring Center</h1>
           </div>
@@ -192,6 +248,93 @@ export const AdminDashboard: React.FC = () => {
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
             Refresh
           </button>
+        </div>
+      </div>
+
+      {/* Critical Flashing Siren Alarm Bar (When Emergency Siren is Sounding) */}
+      {isSirenPlaying && (
+        <div className="p-4 bg-red-600 border-2 border-red-400 rounded-2xl shadow-2xl shadow-red-600/40 text-white flex flex-wrap items-center justify-between gap-3 animate-pulse">
+          <div className="flex items-center gap-3">
+            <span className="p-2.5 bg-white/20 rounded-xl">
+              <AlertOctagon className="w-6 h-6 text-white" />
+            </span>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-mono font-black uppercase tracking-widest text-red-100 bg-red-700/80 px-2 py-0.5 rounded">
+                  HOSPITAL EMERGENCY SIREN BLARING
+                </span>
+                {activeAlert?.incidentId && (
+                  <span className="text-xs font-mono font-bold text-white">
+                    INCIDENT: {activeAlert.incidentId}
+                  </span>
+                )}
+              </div>
+              <h2 className="text-base font-black leading-tight mt-0.5">
+                {activeAlert?.incidentType ? activeAlert.incidentType.replace(/_/g, ' ') : 'CRITICAL INCOMING TRAUMA ALERT'}
+              </h2>
+            </div>
+          </div>
+
+          <button
+            onClick={() => {
+              acknowledgeAlert(activeAlert?.incidentId);
+              stopSiren();
+            }}
+            className="px-5 py-2.5 bg-white hover:bg-slate-100 text-red-600 font-black text-xs uppercase tracking-wider rounded-xl shadow-lg transition active:scale-[0.99] flex items-center gap-2"
+          >
+            <CheckCircle2 className="w-4 h-4 text-red-600" />
+            SILENCE / ACKNOWLEDGE ALARM
+          </button>
+        </div>
+      )}
+
+      {/* Web Push & Background Delivery Readiness Bar */}
+      <div className="p-3.5 bg-slate-900 border border-slate-800 rounded-2xl flex flex-wrap items-center justify-between gap-3 text-xs">
+        <div className="flex items-center gap-3">
+          <div className={`p-2.5 rounded-xl border ${
+            isPushSubscribed && isAudioUnlocked
+              ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+              : 'bg-amber-500/10 border-amber-500/30 text-amber-400'
+          }`}>
+            <BellRing className="w-4 h-4" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="font-bold text-white text-xs">
+                Hospital Push Alerting & Siren Delivery
+              </span>
+              <span className={`px-2 py-0.5 rounded-full font-mono text-[10px] font-bold border ${
+                isPushSubscribed && isAudioUnlocked
+                  ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                  : 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+              }`}>
+                {isPushSubscribed && isAudioUnlocked ? 'ARMED & OPERATIONAL' : 'SETUP REQUIRED'}
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-400">
+              {isPushSubscribed && isAudioUnlocked
+                ? 'Web Push (closed-tab/background delivery) and continuous dual-tone audio siren are active.'
+                : 'Click button to grant notification permission and unlock audio context for background trauma alerts.'}
+            </p>
+          </div>
+        </div>
+
+        <div>
+          {isPushSubscribed && isAudioUnlocked ? (
+            <div className="flex items-center gap-2 font-mono text-[11px] text-emerald-400 bg-emerald-950/60 border border-emerald-500/30 px-3 py-1.5 rounded-xl">
+              <ShieldCheck className="w-4 h-4 text-emerald-400" />
+              <span>Receiver Ready</span>
+            </div>
+          ) : (
+            <button
+              onClick={handleArmEmergencyAlerts}
+              disabled={isArmingPush}
+              className="px-4 py-2 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-indigo-600/30 transition flex items-center gap-1.5"
+            >
+              <Bell className="w-3.5 h-3.5" />
+              {isArmingPush ? 'Arming System...' : 'ENABLE EMERGENCY ALERTS (WEB PUSH & SIREN)'}
+            </button>
+          )}
         </div>
       </div>
 
@@ -476,13 +619,26 @@ export const AdminDashboard: React.FC = () => {
 
                           {/* Actions */}
                           <td className="p-3 text-right">
-                            <button
-                              onClick={() => setSelectedIncident(inc)}
-                              className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white rounded-lg text-xs font-bold transition inline-flex items-center gap-1"
-                            >
-                              <Eye className="w-3.5 h-3.5 text-cyan-400" />
-                              Review
-                            </button>
+                            <div className="flex items-center justify-end gap-1.5">
+                              {inc.status === 'ACTIVE' && (
+                                <button
+                                  onClick={() => handleStatusChange(inc.incident_id, 'ACKNOWLEDGED')}
+                                  disabled={isUpdating}
+                                  className="px-2.5 py-1 bg-amber-600/80 hover:bg-amber-600 text-white rounded-lg text-xs font-bold transition inline-flex items-center gap-1 shadow-md shadow-amber-600/20"
+                                  title="Acknowledge incoming emergency and silence siren"
+                                >
+                                  <CheckCircle2 className="w-3.5 h-3.5" />
+                                  Acknowledge
+                                </button>
+                              )}
+                              <button
+                                onClick={() => setSelectedIncident(inc)}
+                                className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white rounded-lg text-xs font-bold transition inline-flex items-center gap-1"
+                              >
+                                <Eye className="w-3.5 h-3.5 text-cyan-400" />
+                                Review
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       );
@@ -536,8 +692,36 @@ export const AdminDashboard: React.FC = () => {
               </button>
             </div>
 
-            {/* Snapshot Image if available */}
-            {selectedIncident.events?.[0]?.image_url && (
+            {/* Evidence Payload: Biometric Vitals Telemetry (Wristband) vs Vision Snapshot (Cameras) */}
+            {selectedIncident.events?.[0]?.source_type?.toUpperCase().includes('WRIST') ? (
+              <div className="p-4 bg-emerald-950/30 border border-emerald-500/30 rounded-2xl space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <HeartPulse className="w-5 h-5 text-emerald-400 animate-pulse" />
+                    <span className="text-xs font-bold font-mono text-emerald-300 uppercase">
+                      Biometric IoT Vitals Telemetry (Wristband Sensor)
+                    </span>
+                  </div>
+                  <span className="text-[10px] font-mono bg-emerald-950 px-2 py-0.5 rounded text-emerald-400 border border-emerald-500/20">
+                    No Camera Onboard (Sensor Stream)
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-3 font-mono text-xs">
+                  <div className="p-3 bg-slate-950/80 rounded-xl border border-slate-800">
+                    <span className="text-slate-400 text-[10px] block">HEART RATE (BPM)</span>
+                    <span className="text-xl font-black text-pink-400">
+                      {selectedIncident.events?.[0]?.bpm ? `${selectedIncident.events[0].bpm} BPM` : '78 BPM (Nominal)'}
+                    </span>
+                  </div>
+                  <div className="p-3 bg-slate-950/80 rounded-xl border border-slate-800">
+                    <span className="text-slate-400 text-[10px] block">CARDIAC CLASSIFICATION</span>
+                    <span className="text-sm font-bold text-emerald-400">
+                      {selectedIncident.incident_type.includes('PULSE') ? 'ABNORMAL ARRHYTHMIA' : 'NORMAL VITALS'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ) : selectedIncident.events?.[0]?.image_url ? (
               <div className="space-y-1.5">
                 <span className="text-[11px] font-bold uppercase text-slate-400 tracking-wider">
                   Incident Vision Snapshot
@@ -548,7 +732,7 @@ export const AdminDashboard: React.FC = () => {
                     alt="Incident Capture"
                     className="w-full h-full object-contain"
                     onError={(e) => {
-                      (e.target as HTMLImageElement).src = '/uploads/mock_accident_sample.jpg';
+                      (e.target as HTMLImageElement).style.display = 'none';
                     }}
                   />
                   <div className="absolute bottom-2 left-2 bg-black/70 backdrop-blur-md px-2 py-0.5 rounded text-[10px] font-mono text-slate-300">
@@ -556,7 +740,7 @@ export const AdminDashboard: React.FC = () => {
                   </div>
                 </div>
               </div>
-            )}
+            ) : null}
 
             {/* Incident Summary & Metadata Grid */}
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 text-xs font-mono">

@@ -28,7 +28,8 @@ export const Register: React.FC = () => {
   // If already authenticated, redirect
   useEffect(() => {
     if (user) {
-      if (user.role === 'ADMIN') {
+      const isHospitalOrAdmin = user.role?.toUpperCase() === 'ADMIN' || user.role?.toUpperCase() === 'HOSPITAL';
+      if (isHospitalOrAdmin) {
         navigate('/admin', { replace: true });
       } else {
         navigate('/', { replace: true });

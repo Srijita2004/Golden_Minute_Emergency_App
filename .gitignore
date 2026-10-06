@@ -35,3 +35,8 @@ backend/uploads/*
 .env.local
 backend/.env
 frontend/.env
+# VAPID private key storage
+*.vapid_keys.json
+backend/.vapid_keys.json
+.vapid_keys.json
+

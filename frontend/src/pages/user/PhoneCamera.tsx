@@ -23,7 +23,15 @@ export const PhoneCamera: React.FC = () => {
   const [lastIncidentId, setLastIncidentId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const { triggerLocalSiren } = useEmergencyAlert();
+  const {
+    triggerLocalAlarm,
+    unlockAudio,
+    stopSiren,
+    acknowledgeAlert,
+    isSirenPlaying,
+    activeAlert,
+    isAudioUnlocked
+  } = useEmergencyAlert();
 
   const ML_SERVICE_URL = import.meta.env.VITE_ML_SERVICE_URL || 'https://srij1-esp32-accident-brain.hf.space';
 
@@ -55,6 +63,8 @@ export const PhoneCamera: React.FC = () => {
   // Start Camera Stream & automatically engage AI Scanning
   const startCamera = async (mode: 'user' | 'environment') => {
     try {
+      // User gesture unlocks the Web Audio API synchronously so emergency sirens can sound unimpeded
+      unlockAudio().catch(() => {});
       setErrorMessage(null);
       if (videoRef.current && videoRef.current.srcObject) {
         const stream = videoRef.current.srcObject as MediaStream;
@@ -271,7 +281,21 @@ export const PhoneCamera: React.FC = () => {
         lastAlertTimeRef.current = now; // Lock cooldown on successful log
         setLastIncidentId(incidentRes.incident_id);
         setMlStatus(`🚨 INCIDENT LOGGED: ${incidentRes.incident_id}`);
-        triggerLocalSiren(); // Instant audio-visual alarm
+        
+        // Trigger high-priority audio-visual emergency alarm & siren
+        const snapshotUrl = blob ? URL.createObjectURL(blob) : undefined;
+        triggerLocalAlarm({
+          incidentId: incidentRes.incident_id,
+          incidentType: incType,
+          sourceType: 'PHONE_AI',
+          title: `🚨 ${incType.replace(/_/g, ' ')} DETECTED`,
+          body: `Confirmed emergency incident ${incidentRes.incident_id} detected on phone camera. Emergency siren active.`,
+          latitude: phoneGps?.lat,
+          longitude: phoneGps?.lon,
+          confidence: currentScore,
+          imageUrl: snapshotUrl,
+          timestamp: new Date().toISOString()
+        });
       } catch (dispatchErr: any) {
         console.error('Failed to dispatch mobile incident to backend:', dispatchErr);
         setMlStatus(`DISPATCH FAILED: ${dispatchErr.message || 'Network error'}`);
@@ -354,7 +378,17 @@ export const PhoneCamera: React.FC = () => {
 
       const res = await api.createMobileIncident(formData);
       setLastIncidentId(res.incident_id);
-      triggerLocalSiren();
+      triggerLocalAlarm({
+        incidentId: res.incident_id,
+        incidentType: type,
+        sourceType: 'PHONE_AI',
+        title: `🚨 ${type.replace(/_/g, ' ')} (MANUAL SOS)`,
+        body: `Manual emergency SOS distress dispatched from phone camera.`,
+        latitude: phoneGps?.lat,
+        longitude: phoneGps?.lon,
+        confidence: 0.895,
+        timestamp: new Date().toISOString()
+      });
     } catch (err: any) {
       console.error('Manual incident trigger error:', err);
       alert(err.message || 'Failed to simulate incident');
@@ -375,6 +409,45 @@ export const PhoneCamera: React.FC = () => {
           Real-time AI monitoring directly from your phone camera feed.
         </p>
       </div>
+
+      {/* Prominent Active Alarm & Siren Warning Card with Instant Stop / Acknowledge */}
+      {(isSirenPlaying || (activeAlert && (activeAlert.incidentId === lastIncidentId || activeAlert.sourceType === 'PHONE_AI'))) && (
+        <div className="p-4 bg-red-600 border-2 border-red-400 rounded-2xl shadow-2xl shadow-red-600/50 text-white space-y-3 animate-pulse">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="p-2 bg-white/20 rounded-xl">
+                <ShieldAlert className="w-6 h-6 text-white" />
+              </span>
+              <div>
+                <span className="text-[10px] font-mono font-black uppercase tracking-widest text-red-100">
+                  CRITICAL EMERGENCY ALARM ACTIVE
+                </span>
+                <h3 className="text-base font-black leading-tight">
+                  {activeAlert?.incidentType ? activeAlert.incidentType.replace(/_/g, ' ') : 'ACCIDENT DETECTED'}
+                </h3>
+              </div>
+            </div>
+            <div className="text-right font-mono text-[11px] text-red-100">
+              ID: {activeAlert?.incidentId || lastIncidentId || 'LOGGED'}
+            </div>
+          </div>
+
+          <p className="text-xs text-red-100 font-medium">
+            Emergency alert dispatched to trauma response network. Continuous emergency siren and device vibration are active.
+          </p>
+
+          <button
+            onClick={() => {
+              acknowledgeAlert(lastIncidentId || activeAlert?.incidentId);
+              stopSiren();
+            }}
+            className="w-full py-3 bg-white hover:bg-slate-100 text-red-600 font-black text-sm uppercase tracking-wider rounded-xl shadow-lg transition active:scale-[0.99] flex items-center justify-center gap-2"
+          >
+            <CheckCircle2 className="w-5 h-5 text-red-600" />
+            STOP / ACKNOWLEDGE ALARM
+          </button>
+        </div>
+      )}
 
       {/* Permissions Status Row */}
       <div className="grid grid-cols-2 gap-2 text-xs">

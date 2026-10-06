@@ -129,6 +129,21 @@ class NotificationTokenOut(BaseModel):
     class Config:
         from_attributes = True
 
+class WebPushSubscribeRequest(BaseModel):
+    endpoint: str
+    keys: Dict[str, str]
+    user_agent: Optional[str] = None
+
+class WebPushSubscriptionOut(BaseModel):
+    id: int
+    user_id: str
+    endpoint: str
+    enabled: bool
+    created_at: datetime.datetime
+
+    class Config:
+        from_attributes = True
+
 # =========================================================================
 # DETECTION & INCIDENT SCHEMAS
 # =========================================================================
