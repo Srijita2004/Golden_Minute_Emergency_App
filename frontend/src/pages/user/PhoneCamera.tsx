@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Camera, RefreshCw, Smartphone, MapPin, AlertTriangle, ShieldCheck, CheckCircle2, XCircle, Activity, Radio, AlertOctagon } from 'lucide-react';
+import { Camera, RefreshCw, Smartphone, MapPin, AlertTriangle, ShieldCheck, CheckCircle2, XCircle, Activity, Radio, AlertOctagon, ChevronDown, ChevronUp, Wrench, ShieldAlert } from 'lucide-react';
 import { api } from '../../services/api';
 import { useEmergencyAlert } from '../../context/EmergencyAlertContext';
 
@@ -12,6 +12,7 @@ export const PhoneCamera: React.FC = () => {
   const [phoneGps, setPhoneGps] = useState<{ lat: number; lon: number; acc: number } | null>(null);
   const [isDetecting, setIsDetecting] = useState(false);
   const [isAutoMonitoring, setIsAutoMonitoring] = useState(false);
+  const [showDevTools, setShowDevTools] = useState(false);
   
   // Real-time inference telemetry states
   const [mlStatus, setMlStatus] = useState<string>('IDLE');
@@ -29,6 +30,7 @@ export const PhoneCamera: React.FC = () => {
   const lastAlertTimeRef = useRef<number>(0);
   const monitoringTimerRef = useRef<any>(null);
   const isProcessingRef = useRef<boolean>(false);
+  const slidingWindowRef = useRef<Array<{ accident: boolean; type: string; score: number; timestamp: number }>>([]);
 
   // Request Phone GPS
   const requestPhoneLocation = () => {
@@ -182,9 +184,29 @@ export const PhoneCamera: React.FC = () => {
       setLastScore(data.score ?? 0);
       setErrorMessage(null);
 
-      // 4. Non-Accident Case
-      if (!data.accident) {
-        const now = Date.now();
+      const now = Date.now();
+      const currentScore = Number(data.score ?? data.confidence ?? 0);
+      const isPositive = Boolean(data.accident || data.emergency);
+      const textCheck = `${data.type || ''} ${data.result || ''}`.toLowerCase();
+      const incType = textCheck.includes('fire')
+        ? 'FIRE_ACCIDENT'
+        : textCheck.includes('fall')
+        ? 'FALL_ACCIDENT'
+        : 'ROAD_ACCIDENT';
+
+      // 4. Update Rolling Temporal Window (sliding window of last 3 frames)
+      slidingWindowRef.current.push({
+        accident: isPositive,
+        type: incType,
+        score: currentScore,
+        timestamp: now
+      });
+      if (slidingWindowRef.current.length > 3) {
+        slidingWindowRef.current.shift();
+      }
+
+      // 5. Non-Accident Case
+      if (!isPositive) {
         const cooldownRemaining = Math.max(0, Math.round((30000 - (now - lastAlertTimeRef.current)) / 1000));
         if (cooldownRemaining > 0) {
           setMlStatus(`COOLDOWN (${cooldownRemaining}s)`);
@@ -196,37 +218,45 @@ export const PhoneCamera: React.FC = () => {
         return;
       }
 
-      // 5. POSITIVE DETECTION CONFIRMED
+      // 6. Temporal Multi-Frame Confirmation Logic
+      // - Fast-track: High-confidence accident (>= 0.75) triggers rapid immediate dispatch
+      // - Temporal smoothing: Moderate confidence (< 0.75) requires at least 2 matching positive frames in the last 3 frames
+      const matchingFrames = slidingWindowRef.current.filter(
+        f => f.accident && f.type === incType && f.score >= 0.45
+      );
+      const isFastTrack = currentScore >= 0.75;
+      const isTemporallyConfirmed = matchingFrames.length >= 2;
+
       const detectionDetail = data.result || data.type || 'Emergency Detected';
-      const confPercent = Math.round((data.score || 0.85) * 100);
-      setLastDetection(`${detectionDetail} (${confPercent}%)`);
+      const confPercent = Math.round((currentScore || 0.85) * 100);
 
-      const now = Date.now();
-      const timeSinceAlert = now - lastAlertTimeRef.current;
-
-      // Cooldown check (30 seconds)
-      if (timeSinceAlert < 30000) {
-        const remaining = Math.round((30000 - timeSinceAlert) / 1000);
-        setMlStatus(`COOLDOWN (${remaining}s) - ${detectionDetail}`);
+      if (!isFastTrack && !isTemporallyConfirmed) {
+        // Isolated candidate frame: hold without triggering alarm
+        setMlStatus(`ANALYZING CANDIDATE: ${incType.replace('_', ' ')} (${confPercent}%) [1/2]`);
+        setLastDetection(`Potential ${incType.replace('_', ' ')} — Awaiting confirmation frame...`);
         isProcessingRef.current = false;
         return;
       }
 
-      // 6. Dispatch Incident to Render Backend
-      setMlStatus(`🚨 DISPATCHING ALERT: ${detectionDetail}`);
+      // 7. Confirmed Emergency
+      setLastDetection(`${detectionDetail} (${confPercent}%) — CONFIRMED`);
 
-      const textCheck = `${data.type || ''} ${data.result || ''}`.toLowerCase();
-      const incType = textCheck.includes('fire')
-        ? 'FIRE_ACCIDENT'
-        : textCheck.includes('fall')
-        ? 'FALL_ACCIDENT'
-        : 'ROAD_ACCIDENT';
+      const timeSinceAlert = now - lastAlertTimeRef.current;
+      if (timeSinceAlert < 30000) {
+        const remaining = Math.round((30000 - timeSinceAlert) / 1000);
+        setMlStatus(`COOLDOWN (${remaining}s) — ${detectionDetail}`);
+        isProcessingRef.current = false;
+        return;
+      }
+
+      // 8. Dispatch Incident to Render Backend
+      setMlStatus(`🚨 DISPATCHING ALERT: ${detectionDetail}`);
 
       const eventId = `EVENT-PHONE-${now}`;
       const incidentFormData = new FormData();
       incidentFormData.append('event_id', eventId);
       incidentFormData.append('incident_type', incType);
-      incidentFormData.append('confidence', String(data.score || 0.85));
+      incidentFormData.append('confidence', String(currentScore || 0.85));
 
       if (phoneGps) {
         incidentFormData.append('latitude', phoneGps.lat.toString());
@@ -238,7 +268,7 @@ export const PhoneCamera: React.FC = () => {
 
       try {
         const incidentRes = await api.createMobileIncident(incidentFormData);
-        lastAlertTimeRef.current = now; // Lock cooldown ONLY on confirmed success
+        lastAlertTimeRef.current = now; // Lock cooldown on successful log
         setLastIncidentId(incidentRes.incident_id);
         setMlStatus(`🚨 INCIDENT LOGGED: ${incidentRes.incident_id}`);
         triggerLocalSiren(); // Instant audio-visual alarm
@@ -463,78 +493,126 @@ export const PhoneCamera: React.FC = () => {
         )}
       </div>
 
-      {/* Live AI Telemetry & Diagnostics Card */}
-      {streamActive && (
-        <div className="p-3.5 bg-slate-900 border border-slate-800 rounded-2xl text-xs space-y-2">
-          <div className="flex items-center justify-between font-mono text-[11px] text-slate-400 border-b border-slate-800 pb-2">
-            <span className="flex items-center gap-1.5 text-purple-300 font-bold">
-              <Radio className="w-3.5 h-3.5 text-purple-400 animate-pulse" />
-              AI INFERENCE TELEMETRY
-            </span>
-            <span>Frames: <strong className="text-white">{framesProcessed}</strong></span>
-          </div>
-
-          <div className="grid grid-cols-2 gap-2 font-mono text-[11px]">
-            <div>
-              <span className="text-slate-500">Last Detection:</span>
-              <p className={`font-bold truncate ${lastDetection.includes('Normal') ? 'text-slate-300' : 'text-red-400'}`}>
-                {lastDetection}
-              </p>
-            </div>
-            <div>
-              <span className="text-slate-500">ML Confidence:</span>
-              <p className="font-bold text-slate-200">
-                {lastScore !== null ? `${(lastScore * 100).toFixed(1)}%` : '—'}
-              </p>
-            </div>
-            <div>
-              <span className="text-slate-500">Inference Latency:</span>
-              <p className="font-bold text-cyan-300">
-                {lastLatency !== null ? `${lastLatency} ms` : '—'}
-              </p>
-            </div>
-            <div>
-              <span className="text-slate-500">ML Endpoint:</span>
-              <p className="font-bold text-slate-400 truncate" title={ML_SERVICE_URL}>
-                srij1-esp32-accident-brain.hf.space
-              </p>
-            </div>
-          </div>
-
-          {errorMessage && (
-            <div className="p-2.5 bg-red-950/60 border border-red-500/40 rounded-xl text-red-200 text-[11px] flex items-center gap-2">
-              <AlertOctagon className="w-4 h-4 text-red-400 shrink-0" />
-              <span className="font-mono">{errorMessage}</span>
-            </div>
-          )}
+      {/* User Emergency Status & Temporal Smoothing Indicator */}
+      <div className="p-3 bg-slate-900 border border-slate-800 rounded-2xl flex items-center justify-between text-xs font-mono">
+        <div className="flex items-center gap-2">
+          <span className={`w-2.5 h-2.5 rounded-full ${
+            mlStatus.includes('ALERT') || mlStatus.includes('INCIDENT')
+              ? 'bg-red-500 animate-ping'
+              : mlStatus.includes('VERIFYING')
+              ? 'bg-amber-400 animate-pulse'
+              : mlStatus.includes('COOLDOWN')
+              ? 'bg-amber-500'
+              : isAutoMonitoring
+              ? 'bg-emerald-400 animate-pulse'
+              : 'bg-slate-600'
+          }`} />
+          <span className="font-bold text-white text-[11px] truncate max-w-[200px] sm:max-w-xs">{mlStatus}</span>
         </div>
-      )}
-
-      {/* Manual AI Incident Triggers for verification / simulation */}
-      <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-3">
-        <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400">
-          Simulate Phone AI Detection Trigger
-        </h4>
-        <div className="grid grid-cols-2 gap-2">
-          <button
-            onClick={() => triggerMobileIncident('ROAD_ACCIDENT')}
-            disabled={isDetecting}
-            className="p-3 bg-red-600/30 hover:bg-red-600 border border-red-500/50 rounded-xl text-xs font-bold text-red-200 hover:text-white transition"
-          >
-            Detect Road Accident
-          </button>
-          <button
-            onClick={() => triggerMobileIncident('FALL_ACCIDENT')}
-            disabled={isDetecting}
-            className="p-3 bg-rose-600/30 hover:bg-rose-600 border border-rose-500/50 rounded-xl text-xs font-bold text-rose-200 hover:text-white transition"
-          >
-            Detect Human Fall
-          </button>
+        <div className="flex items-center gap-2 text-[10px] text-slate-400">
+          {lastLatency !== null && <span className="bg-slate-950 px-2 py-0.5 rounded border border-slate-800 text-cyan-400">{lastLatency}ms</span>}
+          <span className="bg-purple-950/60 px-2 py-0.5 rounded border border-purple-500/30 text-purple-300 font-bold hidden sm:inline">Temporal Filter: ON</span>
         </div>
+      </div>
 
-        {lastIncidentId && (
-          <div className="p-2.5 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-center text-xs text-emerald-400 font-mono">
-            Active Incident: <strong className="text-white">{lastIncidentId}</strong>
+      {/* Emergency Distress Button */}
+      <button
+        onClick={() => triggerMobileIncident('ROAD_ACCIDENT')}
+        disabled={isDetecting}
+        className="w-full py-3 bg-red-600 hover:bg-red-500 active:scale-[0.99] text-white font-extrabold text-xs uppercase tracking-wider rounded-2xl shadow-xl shadow-red-600/30 transition flex items-center justify-center gap-2"
+      >
+        <ShieldAlert className="w-4 h-4 animate-bounce" />
+        Instant Emergency SOS Dispatch
+      </button>
+
+      {/* Collapsible Test & Developer Controls */}
+      <div className="rounded-2xl bg-slate-900/90 border border-slate-800 overflow-hidden">
+        <button
+          onClick={() => setShowDevTools(!showDevTools)}
+          className="w-full p-3.5 flex items-center justify-between text-xs font-bold text-slate-300 hover:text-white transition"
+        >
+          <span className="flex items-center gap-2">
+            <Wrench className="w-4 h-4 text-purple-400" />
+            Testing, Simulation & Telemetry Tools
+          </span>
+          {showDevTools ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
+        </button>
+
+        {showDevTools && (
+          <div className="p-4 border-t border-slate-800/80 space-y-4 text-xs">
+            {/* Live AI Telemetry & Diagnostics */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between font-mono text-[11px] text-slate-400 border-b border-slate-800 pb-1.5">
+                <span className="flex items-center gap-1.5 text-purple-300 font-bold">
+                  <Radio className="w-3.5 h-3.5 text-purple-400 animate-pulse" />
+                  AI INFERENCE TELEMETRY
+                </span>
+                <span>Frames: <strong className="text-white">{framesProcessed}</strong></span>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 font-mono text-[11px]">
+                <div>
+                  <span className="text-slate-500">Last Detection:</span>
+                  <p className={`font-bold truncate ${lastDetection.includes('Normal') ? 'text-slate-300' : 'text-red-400'}`}>
+                    {lastDetection}
+                  </p>
+                </div>
+                <div>
+                  <span className="text-slate-500">ML Confidence:</span>
+                  <p className="font-bold text-slate-200">
+                    {lastScore !== null ? `${(lastScore * 100).toFixed(1)}%` : '—'}
+                  </p>
+                </div>
+                <div>
+                  <span className="text-slate-500">Inference Latency:</span>
+                  <p className="font-bold text-cyan-300">
+                    {lastLatency !== null ? `${lastLatency} ms` : '—'}
+                  </p>
+                </div>
+                <div>
+                  <span className="text-slate-500">ML Endpoint:</span>
+                  <p className="font-bold text-slate-400 truncate" title={ML_SERVICE_URL}>
+                    srij1-esp32-accident-brain.hf.space
+                  </p>
+                </div>
+              </div>
+
+              {errorMessage && (
+                <div className="p-2.5 bg-red-950/60 border border-red-500/40 rounded-xl text-red-200 text-[11px] flex items-center gap-2">
+                  <AlertOctagon className="w-4 h-4 text-red-400 shrink-0" />
+                  <span className="font-mono">{errorMessage}</span>
+                </div>
+              )}
+            </div>
+
+            {/* Manual AI Incident Triggers */}
+            <div className="pt-2 border-t border-slate-800 space-y-2">
+              <h4 className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                Manual Scenario Simulation
+              </h4>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => triggerMobileIncident('ROAD_ACCIDENT')}
+                  disabled={isDetecting}
+                  className="p-2.5 bg-red-600/30 hover:bg-red-600 border border-red-500/50 rounded-xl text-xs font-bold text-red-200 hover:text-white transition"
+                >
+                  Detect Road Accident
+                </button>
+                <button
+                  onClick={() => triggerMobileIncident('FALL_ACCIDENT')}
+                  disabled={isDetecting}
+                  className="p-2.5 bg-rose-600/30 hover:bg-rose-600 border border-rose-500/50 rounded-xl text-xs font-bold text-rose-200 hover:text-white transition"
+                >
+                  Detect Human Fall
+                </button>
+              </div>
+
+              {lastIncidentId && (
+                <div className="p-2 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-center text-xs text-emerald-400 font-mono">
+                  Active Incident: <strong className="text-white">{lastIncidentId}</strong>
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>

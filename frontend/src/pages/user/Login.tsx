@@ -15,9 +15,12 @@ export const Login: React.FC = () => {
     e.preventDefault();
     try {
       setLoading(true);
-      setError('');
-      await login({ email, password });
-      navigate('/');
+      const loggedIn = await login({ email, password });
+      if (loggedIn?.role === 'ADMIN') {
+        navigate('/admin');
+      } else {
+        navigate('/');
+      }
     } catch (err: any) {
       setError(err.message || 'Login failed');
     } finally {

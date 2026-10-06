@@ -180,6 +180,16 @@ export const api = {
     return res.json();
   },
 
+  async updateIncidentStatus(id: string, newStatus: string): Promise<Incident> {
+    const res = await fetch(`${API_BASE}/incidents/${id}/status?new_status=${encodeURIComponent(newStatus)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+      body: JSON.stringify({ status: newStatus })
+    });
+    if (!res.ok) throw new Error((await res.json()).detail || 'Failed to update status');
+    return res.json();
+  },
+
   async createMobileIncident(formData: FormData): Promise<Incident> {
     const res = await fetch(`${API_BASE}/incidents/mobile-camera`, {
       method: 'POST',
@@ -257,10 +267,17 @@ export const api = {
     return res.json();
   },
 
-  async getAdminIncidents(page = 1) {
-    const res = await fetch(`${API_BASE}/admin/incidents?page=${page}`, {
+  async getAdminIncidents(params?: { status?: string; incident_type?: string; search?: string; page?: number }): Promise<{ total: number; page: number; page_size: number; incidents: Incident[] }> {
+    const p = new URLSearchParams();
+    if (params?.page) p.append('page', String(params.page));
+    if (params?.status && params.status !== 'ALL') p.append('status', params.status);
+    if (params?.incident_type && params.incident_type !== 'ALL') p.append('incident_type', params.incident_type);
+    if (params?.search) p.append('search', params.search);
+    const qs = p.toString() ? `?${p.toString()}` : '';
+    const res = await fetch(`${API_BASE}/admin/incidents${qs}`, {
       headers: { ...getAuthHeaders() }
     });
+    if (!res.ok) throw new Error('Failed to fetch admin incidents');
     return res.json();
   },
 

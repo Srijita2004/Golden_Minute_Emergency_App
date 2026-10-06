@@ -5,7 +5,7 @@ interface AuthContextType {
   user: User | null;
   token: string | null;
   loading: boolean;
-  login: (data: any) => Promise<void>;
+  login: (data: any) => Promise<User>;
   register: (data: any) => Promise<void>;
   logout: () => void;
   refreshUser: () => Promise<void>;
@@ -40,11 +40,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     refreshUser();
   }, []);
 
-  const login = async (data: any) => {
+  const login = async (data: any): Promise<User> => {
     const res = await api.login(data);
     localStorage.setItem('token', res.access_token);
     setToken(res.access_token);
     setUser(res.user);
+    return res.user;
   };
 
   const register = async (data: any) => {

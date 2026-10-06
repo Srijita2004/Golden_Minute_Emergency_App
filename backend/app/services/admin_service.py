@@ -93,11 +93,62 @@ class AdminService:
         return {"total": total, "page": page, "page_size": page_size, "devices": device_list}
 
     @staticmethod
-    def list_incidents(db: Session, page: int = 1, page_size: int = 20) -> Dict[str, Any]:
+    def list_incidents(
+        db: Session,
+        status: Optional[str] = None,
+        incident_type: Optional[str] = None,
+        search: Optional[str] = None,
+        page: int = 1,
+        page_size: int = 20
+    ) -> Dict[str, Any]:
         query = db.query(Incident)
+        if status and status.upper() != "ALL":
+            query = query.filter(Incident.status == status.upper())
+        if incident_type and incident_type.upper() != "ALL":
+            query = query.filter(Incident.incident_type == incident_type.upper())
+        if search:
+            s = f"%{search}%"
+            query = query.filter(or_(
+                Incident.incident_id.ilike(s),
+                Incident.owner_user_id.ilike(s),
+                Incident.summary.ilike(s)
+            ))
+
         total = query.count()
         items = query.order_by(Incident.created_at.desc()).offset((page - 1) * page_size).limit(page_size).all()
-        return {"total": total, "page": page, "page_size": page_size, "incidents": items}
+
+        incidents_out = []
+        for inc in items:
+            incidents_out.append({
+                "incident_id": inc.incident_id,
+                "owner_user_id": inc.owner_user_id,
+                "incident_type": inc.incident_type,
+                "status": inc.status,
+                "summary": inc.summary,
+                "created_at": inc.created_at.isoformat() if inc.created_at else None,
+                "updated_at": inc.updated_at.isoformat() if inc.updated_at else None,
+                "events": [
+                    {
+                        "event_id": e.event_id,
+                        "incident_id": e.incident_id,
+                        "source_type": e.source_type,
+                        "source_device_id": e.source_device_id,
+                        "image_url": e.image_url,
+                        "bpm": e.bpm,
+                        "confidence": e.confidence,
+                        "latitude": e.latitude,
+                        "longitude": e.longitude,
+                        "location_accuracy": e.location_accuracy,
+                        "location_status": e.location_status,
+                        "alert_status": e.alert_status,
+                        "detected_at": e.detected_at.isoformat() if e.detected_at else None,
+                        "received_at": e.received_at.isoformat() if e.received_at else None
+                    }
+                    for e in inc.events
+                ]
+            })
+
+        return {"total": total, "page": page, "page_size": page_size, "incidents": incidents_out}
 
     @staticmethod
     def list_audit_logs(db: Session, page: int = 1, page_size: int = 50) -> Dict[str, Any]:

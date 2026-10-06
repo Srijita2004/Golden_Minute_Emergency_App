@@ -11,7 +11,7 @@ export const Navbar: React.FC = () => {
     <header className="sticky top-0 z-40 bg-slate-950/80 backdrop-blur-md border-b border-slate-800/80 px-4 py-3">
       <div className="max-w-7xl mx-auto flex items-center justify-between">
         {/* Brand */}
-        <Link to="/" className="flex items-center gap-2.5 group">
+        <Link to={user?.role === 'ADMIN' ? "/admin" : "/"} className="flex items-center gap-2.5 group">
           <div className="p-2 bg-gradient-to-tr from-red-600 to-amber-500 rounded-xl shadow-lg shadow-red-500/20 group-hover:scale-105 transition">
             <ShieldAlert className="w-5 h-5 text-white" />
           </div>
@@ -20,13 +20,23 @@ export const Navbar: React.FC = () => {
               GOLDEN MINUTE
             </span>
             <span className="hidden sm:inline-block text-[10px] uppercase font-mono tracking-widest text-slate-400 ml-2 border border-slate-700/60 px-1.5 py-0.5 rounded">
-              AI Emergency Response
+              {user?.role === 'ADMIN' ? 'HOSPITAL MONITORING' : 'AI Emergency Response'}
             </span>
           </div>
         </Link>
 
         {/* Right Nav */}
         <div className="flex items-center gap-2 sm:gap-3">
+          {user && (
+            <span className={`text-[10px] uppercase font-mono tracking-wider px-2 py-0.5 rounded border hidden sm:inline-block ${
+              user.role === 'ADMIN'
+                ? 'text-indigo-400 bg-indigo-500/10 border-indigo-500/20 font-bold'
+                : 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20'
+            }`}>
+              {user.role === 'ADMIN' ? 'ROLE: ADMIN' : 'USER'}
+            </span>
+          )}
+
           {/* Mock Mode Pill */}
           <Link
             to="/mock-studio"
@@ -44,13 +54,13 @@ export const Navbar: React.FC = () => {
                   className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition shadow-md shadow-indigo-600/30"
                 >
                   <Shield className="w-3.5 h-3.5" />
-                  Admin Portal
+                  Monitoring Feed
                 </Link>
               )}
 
               <div className="hidden sm:flex items-center gap-2 px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-800">
                 <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                <span className="text-xs font-mono text-slate-300">{user.user_id}</span>
+                <span className="text-xs font-mono text-slate-300">{user.email || user.user_id}</span>
               </div>
 
               <button

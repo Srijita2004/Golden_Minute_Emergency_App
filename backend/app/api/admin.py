@@ -36,12 +36,17 @@ def get_admin_devices(
 
 @router.get("/incidents")
 def get_admin_incidents(
+    status: Optional[str] = None,
+    incident_type: Optional[str] = None,
+    search: Optional[str] = None,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db),
     admin: User = Depends(get_current_admin)
 ):
-    return AdminService.list_incidents(db, page, page_size)
+    return AdminService.list_incidents(
+        db, status=status, incident_type=incident_type, search=search, page=page, page_size=page_size
+    )
 
 @router.get("/audit-logs")
 def get_admin_audit_logs(

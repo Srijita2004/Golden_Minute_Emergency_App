@@ -1,8 +1,12 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
 import { Home, Camera, Activity, Smartphone, AlertTriangle, Cpu, User } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
 
 export const BottomNav: React.FC = () => {
+  const { user } = useAuth();
+  if (user?.role === 'ADMIN') return null;
+
   const navItems = [
     { to: '/', label: 'Home', icon: Home },
     { to: '/camera-detail', label: 'Camera', icon: Camera },

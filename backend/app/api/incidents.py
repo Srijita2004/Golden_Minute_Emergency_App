@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException, s
 from typing import List, Optional
 from sqlalchemy.orm import Session
 from app.database.connection import get_db
-from app.schemas.schemas import IncidentOut, WristbandIncidentPayload, MobileCameraIncidentPayload
+from app.schemas.schemas import IncidentOut, WristbandIncidentPayload, MobileCameraIncidentPayload, IncidentStatusUpdate
 from app.services.incident_service import IncidentService
 from app.adapters.ai_adapter import ai_inference_provider
 from app.api.deps import get_current_user
@@ -135,8 +135,19 @@ def get_incident(id: str, db: Session = Depends(get_db), current_user: User = De
     return IncidentOut.model_validate(incident)
 
 @router.patch("/{id}/status", response_model=IncidentOut)
-def update_incident_status(id: str, new_status: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+def update_incident_status(
+    id: str,
+    new_status: Optional[str] = None,
+    payload: Optional[IncidentStatusUpdate] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    target_status = new_status
+    if not target_status and payload:
+        target_status = payload.new_status or payload.status
+    if not target_status:
+        raise HTTPException(status_code=400, detail="Missing status parameter")
     incident = IncidentService.update_incident_status(
-        db, id, current_user.user_id, new_status, is_admin=(current_user.role == "ADMIN")
+        db, id, current_user.user_id, target_status.upper(), is_admin=(current_user.role == "ADMIN")
     )
     return IncidentOut.model_validate(incident)

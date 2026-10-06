@@ -180,6 +180,10 @@ class MobileCameraIncidentPayload(BaseModel):
     location_accuracy: Optional[float] = None
     detected_at: Optional[datetime.datetime] = None
 
+class IncidentStatusUpdate(BaseModel):
+    status: Optional[str] = None
+    new_status: Optional[str] = None
+
 # =========================================================================
 # ADMIN SCHEMAS
 # =========================================================================

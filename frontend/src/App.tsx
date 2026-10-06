@@ -27,6 +27,22 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
   return <>{children}</>;
 };
 
+const AdminRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { user, loading } = useAuth();
+  if (loading) return <div className="p-8 text-center text-xs text-slate-500 font-mono">Restoring session...</div>;
+  if (!user) return <Navigate to="/login" replace />;
+  if (user.role !== 'ADMIN') return <Navigate to="/" replace />;
+  return <>{children}</>;
+};
+
+const UserHomeRoute: React.FC = () => {
+  const { user, loading } = useAuth();
+  if (loading) return <div className="p-8 text-center text-xs text-slate-500 font-mono">Restoring session...</div>;
+  if (!user) return <Navigate to="/login" replace />;
+  if (user.role === 'ADMIN') return <Navigate to="/admin" replace />;
+  return <Home />;
+};
+
 export const AppContent: React.FC = () => {
   const { user } = useAuth();
 
@@ -41,8 +57,10 @@ export const AppContent: React.FC = () => {
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
 
+          {/* User Route with Auto-Redirect for Admin */}
+          <Route path="/" element={<UserHomeRoute />} />
+
           {/* Protected User Routes */}
-          <Route path="/" element={<ProtectedRoute><Home /></ProtectedRoute>} />
           <Route path="/devices" element={<ProtectedRoute><MyDevices /></ProtectedRoute>} />
           <Route path="/wristband-detail" element={<ProtectedRoute><WristbandDetail /></ProtectedRoute>} />
           <Route path="/camera-detail" element={<ProtectedRoute><CameraDetail /></ProtectedRoute>} />
@@ -52,8 +70,8 @@ export const AppContent: React.FC = () => {
           <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
           <Route path="/mock-studio" element={<ProtectedRoute><MockHardwareHub /></ProtectedRoute>} />
 
-          {/* Admin Route */}
-          <Route path="/admin" element={<ProtectedRoute><AdminDashboard /></ProtectedRoute>} />
+          {/* Admin Protected Route */}
+          <Route path="/admin" element={<AdminRoute><AdminDashboard /></AdminRoute>} />
 
           {/* Fallback */}
           <Route path="*" element={<Navigate to="/" replace />} />
