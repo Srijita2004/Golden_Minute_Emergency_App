@@ -4,16 +4,62 @@ from typing import Optional, Dict, Any, Tuple
 from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
 from app.models.all_models import User, AuditLog
-from app.schemas.schemas import UserRegister, UserLogin
+from app.schemas.schemas import UserRegister, UserLogin, HospitalRegister
 from app.core.security import get_password_hash, verify_password, create_access_token, create_refresh_token, decode_token
 
 class AuthService:
 
     @staticmethod
-    def generate_next_user_id(db: Session) -> str:
-        """Generates sequence User IDs: USER-001, USER-002, etc."""
-        count = db.query(User).count()
-        return f"USER-{(count + 1):03d}"
+    def generate_next_user_id(db: Session, prefix: str = "USER") -> str:
+        """Generates sequence User IDs: USER-001 or HOSP-001, etc. using highest ID + 1."""
+        users = db.query(User.user_id).filter(User.user_id.startswith(f"{prefix}-")).all()
+        highest = 0
+        for (u_id,) in users:
+            try:
+                num = int(u_id.split("-")[-1])
+                if num > highest:
+                    highest = num
+            except (ValueError, IndexError):
+                pass
+        return f"{prefix}-{(highest + 1):03d}"
+
+    @staticmethod
+    def register_hospital(db: Session, req: HospitalRegister, ip_address: Optional[str] = None) -> User:
+        # Check duplicate email
+        existing = db.query(User).filter(User.email == req.email.lower().strip()).first()
+        if existing:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="An account with this email address already exists."
+            )
+
+        user_id = AuthService.generate_next_user_id(db, prefix="HOSP")
+        hashed_pw = get_password_hash(req.password)
+        display_name = f"{req.operator_name.strip()} ({req.organization_name.strip()})"
+
+        new_admin = User(
+            user_id=user_id,
+            name=display_name,
+            email=req.email.lower().strip(),
+            hashed_password=hashed_pw,
+            role="ADMIN",
+            status="ACTIVE"
+        )
+        db.add(new_admin)
+
+        # Audit log
+        audit = AuditLog(
+            actor_user_id=user_id,
+            action="HOSPITAL_REGISTERED",
+            resource_type="USER",
+            resource_id=user_id,
+            details=f"Hospital operator {req.operator_name} registered for organization {req.organization_name}",
+            ip_address=ip_address
+        )
+        db.add(audit)
+        db.commit()
+        db.refresh(new_admin)
+        return new_admin
 
     @staticmethod
     def register_user(db: Session, req: UserRegister, ip_address: Optional[str] = None) -> User:

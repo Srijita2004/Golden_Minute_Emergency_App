@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from app.database.connection import get_db
 from app.schemas.schemas import (
     UserRegister, UserLogin, UserOut, TokenResponse, 
-    RefreshTokenRequest, ForgotPasswordRequest, ResetPasswordRequest
+    RefreshTokenRequest, ForgotPasswordRequest, ResetPasswordRequest, HospitalRegister
 )
 from app.services.auth_service import AuthService
 from app.api.deps import get_current_user
@@ -16,6 +16,19 @@ def register(req: UserRegister, request: Request, db: Session = Depends(get_db))
     ip = request.client.host if request.client else None
     user = AuthService.register_user(db, req, ip_address=ip)
     # Automatically generate tokens for newly registered user
+    login_req = UserLogin(email=req.email, password=req.password)
+    user, access_token, refresh_token = AuthService.authenticate_user(db, login_req, ip_address=ip)
+    return TokenResponse(
+        access_token=access_token,
+        refresh_token=refresh_token,
+        user=UserOut.model_validate(user)
+    )
+
+@router.post("/register-hospital", response_model=TokenResponse)
+def register_hospital(req: HospitalRegister, request: Request, db: Session = Depends(get_db)):
+    ip = request.client.host if request.client else None
+    user = AuthService.register_hospital(db, req, ip_address=ip)
+    # Automatically generate tokens for newly registered hospital admin
     login_req = UserLogin(email=req.email, password=req.password)
     user, access_token, refresh_token = AuthService.authenticate_user(db, login_req, ip_address=ip)
     return TokenResponse(

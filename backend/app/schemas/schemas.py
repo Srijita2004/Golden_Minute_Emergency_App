@@ -19,6 +19,20 @@ class UserRegister(BaseModel):
             raise ValueError("Passwords do not match")
         return v
 
+class HospitalRegister(BaseModel):
+    organization_name: str = Field(..., min_length=2, max_length=150)
+    operator_name: str = Field(..., min_length=2, max_length=100)
+    email: EmailStr
+    password: str = Field(..., min_length=8)
+    confirm_password: str
+
+    @field_validator("confirm_password")
+    @classmethod
+    def passwords_match(cls, v, info):
+        if "password" in info.data and v != info.data["password"]:
+            raise ValueError("Passwords do not match")
+        return v
+
 class UserLogin(BaseModel):
     email: EmailStr
     password: str

@@ -90,6 +90,16 @@ export const api = {
     return res.json();
   },
 
+  async registerHospital(data: any) {
+    const res = await fetch(`${API_BASE}/auth/register-hospital`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) throw new Error((await res.json()).detail || 'Hospital registration failed');
+    return res.json();
+  },
+
   async login(data: any) {
     const res = await fetch(`${API_BASE}/auth/login`, {
       method: 'POST',
