@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: golden-minute-emergency-backend
+    env: python
+    region: oregon
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
+    envVars:
+      - key: ML_SERVICE_URL
+        value: https://srij1-esp32-accident-brain.hf.space
+      - key: DATABASE_URL
+        value: sqlite:///./accident_response.db
+      - key: SECRET_KEY
+        generateValue: true

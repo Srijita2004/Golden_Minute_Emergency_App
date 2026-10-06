@@ -34,10 +34,9 @@
 const char* WIFI_SSID     = "YOUR_WIFI_SSID";          // <-- Enter your 2.4GHz Wi-Fi SSID
 const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";      // <-- Enter your Wi-Fi Password
 
-// Central ML Service API URL (from "ML_project" or Deployed Cloud Service)
-// Local example:   "http://192.168.1.100:5000/predict"
-// Deployed example: "https://<your-ml-service>.hf.space/predict"
-const char* ML_PREDICT_URL = "http://192.168.1.100:5000/predict";
+// Central ML Service API URL (Deployed Cloud Service on Hugging Face Spaces)
+const char* ML_PREDICT_URL = "https://srij1-esp32-accident-brain.hf.space/predict";
+
 
 // Golden Minute Application Backend API URL
 // Local example:   "http://192.168.1.100:8000/api"

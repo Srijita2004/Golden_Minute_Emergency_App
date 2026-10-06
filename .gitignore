@@ -22,6 +22,8 @@ venv/
 *.tmp
 .DS_Store
 backend/tests/*.jpg
+backend/last_accident.jpg
+
 
 
 # Uploaded incident snapshots (preserve seed mock sample)
