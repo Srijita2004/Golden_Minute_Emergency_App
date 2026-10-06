@@ -87,7 +87,7 @@ def init_database():
         # 4. Create uploads folder and sample accident snapshot
         os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
         sample_img_dest = os.path.join(settings.UPLOAD_DIR, "mock_accident_sample.jpg")
-        sample_img_src = r"D:\accident\accident\test_images\Pedestrian-accident-3.jpg"
+        sample_img_src = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "..", "ML_project", "test_images", "Pedestrian-accident-3.jpg")
         if os.path.exists(sample_img_src) and not os.path.exists(sample_img_dest):
             shutil.copy(sample_img_src, sample_img_dest)
             print("[DB SEED] Prepared sample test snapshot in uploads folder.")

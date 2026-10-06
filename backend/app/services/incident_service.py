@@ -83,7 +83,9 @@ class IncidentService:
             return db.query(Incident).filter(Incident.incident_id == existing_event.incident_id).first()
 
         # 2. Resolve Device & Owner
-        device = db.query(Device).filter(Device.device_id == device_id).first()
+        device = db.query(Device).filter(
+            (Device.device_id == device_id) | (Device.hardware_identifier == device_id)
+        ).first()
         if not device:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Device {device_id} not registered.")
         owner_user_id = device.owner_user_id

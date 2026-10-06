@@ -21,6 +21,8 @@ venv/
 # Temporary files
 *.tmp
 .DS_Store
+backend/tests/*.jpg
+
 
 # Uploaded incident snapshots (preserve seed mock sample)
 backend/uploads/*
@@ -29,3 +31,5 @@ backend/uploads/*
 # Environment secrets
 .env
 .env.local
+backend/.env
+frontend/.env

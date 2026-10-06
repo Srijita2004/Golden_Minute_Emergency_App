@@ -1,6 +1,20 @@
 import os
 from pydantic import BaseModel
 
+# Automatically load .env if present in backend directory
+_env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", ".env")
+if os.path.exists(_env_path):
+    try:
+        with open(_env_path, "r") as _f:
+            for _line in _f:
+                _line = _line.strip()
+                if _line and not _line.startswith("#") and "=" in _line:
+                    _k, _v = _line.split("=", 1)
+                    if _k.strip() not in os.environ:
+                        os.environ[_k.strip()] = _v.strip().strip("'\"")
+    except Exception:
+        pass
+
 class Settings(BaseModel):
     PROJECT_NAME: str = "AI-Based Accident Detection & Emergency Response System"
     API_V1_STR: str = "/api"
@@ -27,9 +41,8 @@ class Settings(BaseModel):
     BLE_CHARACTERISTIC_UUID_PULSE: str = os.getenv("BLE_CHARACTERISTIC_UUID_PULSE", "<CONFIGURE_BLE_CHAR_PULSE_LATER>")
     BLE_CHARACTERISTIC_UUID_GPS: str = os.getenv("BLE_CHARACTERISTIC_UUID_GPS", "<CONFIGURE_BLE_CHAR_GPS_LATER>")
 
-    # ML Model Path Placeholders
-    ROAD_MODEL_PATH: str = os.getenv("ROAD_MODEL_PATH", "D:/accident/accident/road_expanded_best.pt")
-    FALL_MODEL_PATH: str = os.getenv("FALL_MODEL_PATH", "D:/accident/accident/fall_expanded_best.pt")
+    # Central ML Service URL (Points to ML_project API)
+    ML_SERVICE_URL: str = os.getenv("ML_SERVICE_URL", "http://127.0.0.1:5000")
 
     # Heartbeat & Offline thresholds
     DEVICE_OFFLINE_THRESHOLD_SECONDS: int = 90
