@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Camera, RefreshCw, Smartphone, MapPin, AlertTriangle, ShieldCheck, CheckCircle2, XCircle } from 'lucide-react';
+import { Camera, RefreshCw, Smartphone, MapPin, AlertTriangle, ShieldCheck, CheckCircle2, XCircle, Activity, Radio, AlertOctagon } from 'lucide-react';
 import { api } from '../../services/api';
+import { useEmergencyAlert } from '../../context/EmergencyAlertContext';
 
 export const PhoneCamera: React.FC = () => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -11,14 +12,23 @@ export const PhoneCamera: React.FC = () => {
   const [phoneGps, setPhoneGps] = useState<{ lat: number; lon: number; acc: number } | null>(null);
   const [isDetecting, setIsDetecting] = useState(false);
   const [isAutoMonitoring, setIsAutoMonitoring] = useState(false);
+  
+  // Real-time inference telemetry states
   const [mlStatus, setMlStatus] = useState<string>('IDLE');
   const [lastScore, setLastScore] = useState<number | null>(null);
+  const [lastLatency, setLastLatency] = useState<number | null>(null);
+  const [framesProcessed, setFramesProcessed] = useState<number>(0);
+  const [lastDetection, setLastDetection] = useState<string>('None');
   const [lastIncidentId, setLastIncidentId] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  const { triggerLocalSiren } = useEmergencyAlert();
 
   const ML_SERVICE_URL = import.meta.env.VITE_ML_SERVICE_URL || 'https://srij1-esp32-accident-brain.hf.space';
 
   const lastAlertTimeRef = useRef<number>(0);
   const monitoringTimerRef = useRef<any>(null);
+  const isProcessingRef = useRef<boolean>(false);
 
   // Request Phone GPS
   const requestPhoneLocation = () => {
@@ -40,9 +50,10 @@ export const PhoneCamera: React.FC = () => {
     );
   };
 
-  // Start Camera Stream
+  // Start Camera Stream & automatically engage AI Scanning
   const startCamera = async (mode: 'user' | 'environment') => {
     try {
+      setErrorMessage(null);
       if (videoRef.current && videoRef.current.srcObject) {
         const stream = videoRef.current.srcObject as MediaStream;
         stream.getTracks().forEach(t => t.stop());
@@ -53,22 +64,24 @@ export const PhoneCamera: React.FC = () => {
       });
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-        videoRef.current.play();
+        await videoRef.current.play();
       }
       setStreamActive(true);
+      setIsAutoMonitoring(true); // Automatically engage AI monitoring when camera starts!
       setCameraPermission('granted');
       setFacingMode(mode);
       requestPhoneLocation();
-    } catch (e) {
-      console.error(e);
+    } catch (e: any) {
+      console.error('Camera access error:', e);
       setCameraPermission('denied');
+      setErrorMessage(e.message || 'Unable to access camera device');
     }
   };
 
   const stopCamera = () => {
     setIsAutoMonitoring(false);
     if (monitoringTimerRef.current) {
-      clearInterval(monitoringTimerRef.current);
+      clearTimeout(monitoringTimerRef.current);
       monitoringTimerRef.current = null;
     }
     if (videoRef.current && videoRef.current.srcObject) {
@@ -78,6 +91,7 @@ export const PhoneCamera: React.FC = () => {
     }
     setStreamActive(false);
     setMlStatus('IDLE');
+    isProcessingRef.current = false;
   };
 
   useEffect(() => {
@@ -86,96 +100,201 @@ export const PhoneCamera: React.FC = () => {
     };
   }, []);
 
-  // Automated Real-Time ML Inference Loop
+  // Single inference frame capture and pipeline dispatch
+  const runInferenceCycle = async () => {
+    if (!videoRef.current || isProcessingRef.current) return;
+    const video = videoRef.current;
+
+    // Validate video readiness and non-zero dimensions
+    if (video.readyState < 2 || video.videoWidth === 0 || video.videoHeight === 0) {
+      return;
+    }
+
+    isProcessingRef.current = true;
+    const startTime = performance.now();
+
+    try {
+      // 1. Maintain true camera aspect ratio (scale longest side to max 640px)
+      const vw = video.videoWidth;
+      const vh = video.videoHeight;
+      const maxDim = 640;
+      const scale = Math.min(maxDim / vw, maxDim / vh, 1.0);
+      const cw = Math.round(vw * scale);
+      const ch = Math.round(vh * scale);
+
+      const canvas = document.createElement('canvas');
+      canvas.width = cw;
+      canvas.height = ch;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        isProcessingRef.current = false;
+        return;
+      }
+
+      ctx.drawImage(video, 0, 0, cw, ch);
+
+      // 2. High-quality JPEG snapshot
+      const blob = await new Promise<Blob | null>((resolve) =>
+        canvas.toBlob(resolve, 'image/jpeg', 0.85)
+      );
+
+      if (!blob) {
+        isProcessingRef.current = false;
+        return;
+      }
+
+      // 3. Post to deployed Central ML Service
+      const predictUrl = `${ML_SERVICE_URL.replace(/\/+$/, '')}/predict`;
+
+      // Use FormData (CORS-safelisted, avoids preflight overhead)
+      const uploadForm = new FormData();
+      uploadForm.append('image', blob, 'phone_frame.jpg');
+
+      let response: Response;
+      try {
+        response = await fetch(predictUrl, {
+          method: 'POST',
+          body: uploadForm
+        });
+      } catch (postErr) {
+        // Fallback to octet-stream body if needed
+        response = await fetch(predictUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/octet-stream' },
+          body: blob
+        });
+      }
+
+      const elapsed = Math.round(performance.now() - startTime);
+      setLastLatency(elapsed);
+
+      if (!response.ok) {
+        const errText = await response.text();
+        console.error(`ML API returned HTTP ${response.status}:`, errText);
+        setMlStatus(`ML ERROR (HTTP ${response.status})`);
+        setErrorMessage(`ML Service error ${response.status}: ${errText.slice(0, 100)}`);
+        isProcessingRef.current = false;
+        return;
+      }
+
+      const data = await response.json();
+      setFramesProcessed((prev) => prev + 1);
+      setLastScore(data.score ?? 0);
+      setErrorMessage(null);
+
+      // 4. Non-Accident Case
+      if (!data.accident) {
+        const now = Date.now();
+        const cooldownRemaining = Math.max(0, Math.round((30000 - (now - lastAlertTimeRef.current)) / 1000));
+        if (cooldownRemaining > 0) {
+          setMlStatus(`COOLDOWN (${cooldownRemaining}s)`);
+        } else {
+          setMlStatus('CLEAR: NORMAL');
+        }
+        setLastDetection('Normal Scene (No Emergency)');
+        isProcessingRef.current = false;
+        return;
+      }
+
+      // 5. POSITIVE DETECTION CONFIRMED
+      const detectionDetail = data.result || data.type || 'Emergency Detected';
+      const confPercent = Math.round((data.score || 0.85) * 100);
+      setLastDetection(`${detectionDetail} (${confPercent}%)`);
+
+      const now = Date.now();
+      const timeSinceAlert = now - lastAlertTimeRef.current;
+
+      // Cooldown check (30 seconds)
+      if (timeSinceAlert < 30000) {
+        const remaining = Math.round((30000 - timeSinceAlert) / 1000);
+        setMlStatus(`COOLDOWN (${remaining}s) - ${detectionDetail}`);
+        isProcessingRef.current = false;
+        return;
+      }
+
+      // 6. Dispatch Incident to Render Backend
+      setMlStatus(`🚨 DISPATCHING ALERT: ${detectionDetail}`);
+
+      const textCheck = `${data.type || ''} ${data.result || ''}`.toLowerCase();
+      const incType = textCheck.includes('fire')
+        ? 'FIRE_ACCIDENT'
+        : textCheck.includes('fall')
+        ? 'FALL_ACCIDENT'
+        : 'ROAD_ACCIDENT';
+
+      const eventId = `EVENT-PHONE-${now}`;
+      const incidentFormData = new FormData();
+      incidentFormData.append('event_id', eventId);
+      incidentFormData.append('incident_type', incType);
+      incidentFormData.append('confidence', String(data.score || 0.85));
+
+      if (phoneGps) {
+        incidentFormData.append('latitude', phoneGps.lat.toString());
+        incidentFormData.append('longitude', phoneGps.lon.toString());
+        incidentFormData.append('location_accuracy', phoneGps.acc.toString());
+      }
+
+      incidentFormData.append('image', blob, 'phone_ai_snapshot.jpg');
+
+      try {
+        const incidentRes = await api.createMobileIncident(incidentFormData);
+        lastAlertTimeRef.current = now; // Lock cooldown ONLY on confirmed success
+        setLastIncidentId(incidentRes.incident_id);
+        setMlStatus(`🚨 INCIDENT LOGGED: ${incidentRes.incident_id}`);
+        triggerLocalSiren(); // Instant audio-visual alarm
+      } catch (dispatchErr: any) {
+        console.error('Failed to dispatch mobile incident to backend:', dispatchErr);
+        setMlStatus(`DISPATCH FAILED: ${dispatchErr.message || 'Network error'}`);
+        setErrorMessage(dispatchErr.message || 'Failed to submit incident to backend');
+      }
+    } catch (err: any) {
+      console.error('Real-time AI monitoring loop exception:', err);
+      setMlStatus(`AI ERROR: ${err.message || 'Loop error'}`);
+      setErrorMessage(err.message || 'Error occurred during AI processing');
+    } finally {
+      isProcessingRef.current = false;
+    }
+  };
+
+  // Automated Real-Time ML Inference Loop with clean self-scheduling
   useEffect(() => {
     if (!isAutoMonitoring || !streamActive) {
       if (monitoringTimerRef.current) {
-        clearInterval(monitoringTimerRef.current);
+        clearTimeout(monitoringTimerRef.current);
         monitoringTimerRef.current = null;
       }
       return;
     }
 
-    setMlStatus('MONITORING');
+    setMlStatus('AI SCANNING...');
+    let isCancelled = false;
 
-    monitoringTimerRef.current = setInterval(async () => {
-      if (!videoRef.current || videoRef.current.readyState < 2) return;
-
-      try {
-        const canvas = document.createElement('canvas');
-        canvas.width = 640;
-        canvas.height = 480;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) return;
-
-        ctx.drawImage(videoRef.current, 0, 0, 640, 480);
-        const blob = await new Promise<Blob | null>(res => canvas.toBlob(res, 'image/jpeg', 0.8));
-        if (!blob) return;
-
-        // Post directly to central ML service
-        const mlRes = await fetch(`${ML_SERVICE_URL.replace(/\/$/, '')}/predict`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/octet-stream' },
-          body: blob
-        });
-
-        if (!mlRes.ok) return;
-        const data = await mlRes.json();
-
-        setLastScore(data.score ?? 0);
-
-        if (!data.accident) {
-          setMlStatus('CLEAR');
-          return;
+    const scheduleNext = () => {
+      if (isCancelled) return;
+      monitoringTimerRef.current = setTimeout(async () => {
+        if (!isCancelled && isAutoMonitoring && streamActive) {
+          await runInferenceCycle();
+          scheduleNext();
         }
+      }, 1500);
+    };
 
-        // ACCIDENT DETECTED! Check cooldown (30 seconds)
-        const now = Date.now();
-        if (now - lastAlertTimeRef.current < 30000) {
-          setMlStatus(`COOLDOWN (${Math.round((30000 - (now - lastAlertTimeRef.current)) / 1000)}s)`);
-          return;
-        }
-
-        lastAlertTimeRef.current = now;
-        setMlStatus(`ALERT: ${data.result || data.type}`);
-
-        // Standardize incident type
-        const rawType = (data.type || '').toLowerCase();
-        const incType = rawType.includes('fire') ? 'FIRE_ACCIDENT' : rawType.includes('fall') ? 'FALL_ACCIDENT' : 'ROAD_ACCIDENT';
-
-        const eventId = `EVENT-PHONE-${now}`;
-        const formData = new FormData();
-        formData.append('event_id', eventId);
-        formData.append('incident_type', incType);
-        formData.append('confidence', String(data.score || 0.88));
-
-        if (phoneGps) {
-          formData.append('latitude', phoneGps.lat.toString());
-          formData.append('longitude', phoneGps.lon.toString());
-          formData.append('location_accuracy', phoneGps.acc.toString());
-        }
-
-        formData.append('image', blob, 'phone_ai_snapshot.jpg');
-
-        // Dispatch into Golden Minute pipeline
-        const incidentRes = await api.createMobileIncident(formData);
-        setLastIncidentId(incidentRes.incident_id);
-      } catch (err) {
-        console.warn('Real-time AI monitoring loop error:', err);
-      }
-    }, 1500);
+    scheduleNext();
 
     return () => {
+      isCancelled = true;
       if (monitoringTimerRef.current) {
-        clearInterval(monitoringTimerRef.current);
+        clearTimeout(monitoringTimerRef.current);
         monitoringTimerRef.current = null;
       }
     };
-  }, [isAutoMonitoring, streamActive, phoneGps, ML_SERVICE_URL]);
+  }, [isAutoMonitoring, streamActive, ML_SERVICE_URL, phoneGps]);
 
+  // Manual fallback simulation trigger
   const triggerMobileIncident = async (type: string) => {
     try {
       setIsDetecting(true);
+      setErrorMessage(null);
       const eventId = `EVENT-PHONE-${Date.now()}`;
       const formData = new FormData();
       formData.append('event_id', eventId);
@@ -189,14 +308,14 @@ export const PhoneCamera: React.FC = () => {
       }
 
       // Capture frame snapshot if video is active
-      if (videoRef.current) {
+      if (videoRef.current && videoRef.current.videoWidth > 0) {
         const canvas = document.createElement('canvas');
         canvas.width = 640;
         canvas.height = 480;
         const ctx = canvas.getContext('2d');
         if (ctx) {
           ctx.drawImage(videoRef.current, 0, 0, 640, 480);
-          const blob = await new Promise<Blob | null>(res => canvas.toBlob(res, 'image/jpeg'));
+          const blob = await new Promise<Blob | null>(res => canvas.toBlob(res, 'image/jpeg', 0.85));
           if (blob) {
             formData.append('image', blob, 'phone_snapshot.jpg');
           }
@@ -205,15 +324,17 @@ export const PhoneCamera: React.FC = () => {
 
       const res = await api.createMobileIncident(formData);
       setLastIncidentId(res.incident_id);
+      triggerLocalSiren();
     } catch (err: any) {
-      alert(err.message);
+      console.error('Manual incident trigger error:', err);
+      alert(err.message || 'Failed to simulate incident');
     } finally {
       setIsDetecting(false);
     }
   };
 
   return (
-    <div className="pb-24 pt-4 px-4 max-w-md md:max-w-xl mx-auto space-y-5">
+    <div className="pb-24 pt-4 px-4 max-w-md md:max-w-xl mx-auto space-y-4">
       {/* Header */}
       <div>
         <span className="text-[10px] font-mono uppercase tracking-widest text-purple-400">
@@ -221,7 +342,7 @@ export const PhoneCamera: React.FC = () => {
         </span>
         <h2 className="text-xl font-extrabold text-white">Mobile Phone AI Camera</h2>
         <p className="text-xs text-slate-400">
-          Standalone AI monitoring using your phone's camera and location services.
+          Real-time AI monitoring directly from your phone camera feed.
         </p>
       </div>
 
@@ -258,12 +379,12 @@ export const PhoneCamera: React.FC = () => {
             className={`w-full h-full object-cover ${streamActive ? 'block' : 'hidden'}`}
           />
           {!streamActive && (
-            <div className="text-center p-6 space-y-2">
+            <div className="text-center p-6 space-y-3">
               <Smartphone className="w-10 h-10 text-slate-600 mx-auto" />
               <p className="text-xs text-slate-400">Camera stream is currently inactive.</p>
               <button
                 onClick={() => startCamera('environment')}
-                className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold rounded-xl transition"
+                className="px-5 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-xs font-bold rounded-xl shadow-lg shadow-purple-600/30 transition"
               >
                 Enable AI Camera
               </button>
@@ -280,20 +401,22 @@ export const PhoneCamera: React.FC = () => {
           {/* Live AI Status HUD Overlay */}
           {streamActive && (
             <div className={`absolute top-3 left-3 px-2.5 py-1 rounded-lg text-[10px] font-mono font-bold flex items-center gap-1.5 backdrop-blur-md border ${
-              mlStatus.startsWith('ALERT') 
-                ? 'bg-red-600/80 border-red-400 text-white animate-pulse'
+              mlStatus.includes('ALERT') || mlStatus.includes('INCIDENT')
+                ? 'bg-red-600/90 border-red-400 text-white animate-pulse'
+                : mlStatus.includes('COOLDOWN')
+                ? 'bg-amber-950/80 border-amber-500/50 text-amber-300'
                 : isAutoMonitoring
                 ? 'bg-emerald-950/80 border-emerald-500/50 text-emerald-300'
                 : 'bg-black/60 border-white/10 text-slate-300'
             }`}>
               <span className={`w-2 h-2 rounded-full ${
-                mlStatus.startsWith('ALERT') 
+                mlStatus.includes('ALERT') || mlStatus.includes('INCIDENT')
                   ? 'bg-red-400 animate-ping'
                   : isAutoMonitoring 
                   ? 'bg-emerald-400 animate-pulse' 
                   : 'bg-slate-500'
               }`} />
-              <span>AI: {mlStatus} {lastScore !== null ? `(${lastScore.toFixed(3)})` : ''}</span>
+              <span>{mlStatus}</span>
             </div>
           )}
 
@@ -312,19 +435,21 @@ export const PhoneCamera: React.FC = () => {
           <div className="p-3 bg-slate-950 flex items-center justify-between border-t border-slate-800 gap-2">
             <button
               onClick={() => setIsAutoMonitoring(!isAutoMonitoring)}
-              className={`px-3 py-1.5 text-xs font-bold rounded-xl transition flex items-center gap-1.5 ${
+              className={`px-3.5 py-1.5 text-xs font-bold rounded-xl transition flex items-center gap-1.5 ${
                 isAutoMonitoring 
                   ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/30' 
                   : 'bg-purple-600/30 text-purple-200 border border-purple-500/40 hover:bg-purple-600 hover:text-white'
               }`}
             >
-              {isAutoMonitoring ? 'AI Scan Active' : 'Enable AI Scan'}
+              <Activity className="w-3.5 h-3.5" />
+              {isAutoMonitoring ? 'AI Scan Active' : 'Resume AI Scan'}
             </button>
 
             <button
               onClick={() => startCamera(facingMode === 'user' ? 'environment' : 'user')}
-              className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-xl transition"
+              className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-xl transition flex items-center gap-1"
             >
+              <RefreshCw className="w-3 h-3" />
               Flip Cam
             </button>
 
@@ -338,7 +463,54 @@ export const PhoneCamera: React.FC = () => {
         )}
       </div>
 
-      {/* Manual AI Incident Triggers */}
+      {/* Live AI Telemetry & Diagnostics Card */}
+      {streamActive && (
+        <div className="p-3.5 bg-slate-900 border border-slate-800 rounded-2xl text-xs space-y-2">
+          <div className="flex items-center justify-between font-mono text-[11px] text-slate-400 border-b border-slate-800 pb-2">
+            <span className="flex items-center gap-1.5 text-purple-300 font-bold">
+              <Radio className="w-3.5 h-3.5 text-purple-400 animate-pulse" />
+              AI INFERENCE TELEMETRY
+            </span>
+            <span>Frames: <strong className="text-white">{framesProcessed}</strong></span>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2 font-mono text-[11px]">
+            <div>
+              <span className="text-slate-500">Last Detection:</span>
+              <p className={`font-bold truncate ${lastDetection.includes('Normal') ? 'text-slate-300' : 'text-red-400'}`}>
+                {lastDetection}
+              </p>
+            </div>
+            <div>
+              <span className="text-slate-500">ML Confidence:</span>
+              <p className="font-bold text-slate-200">
+                {lastScore !== null ? `${(lastScore * 100).toFixed(1)}%` : '—'}
+              </p>
+            </div>
+            <div>
+              <span className="text-slate-500">Inference Latency:</span>
+              <p className="font-bold text-cyan-300">
+                {lastLatency !== null ? `${lastLatency} ms` : '—'}
+              </p>
+            </div>
+            <div>
+              <span className="text-slate-500">ML Endpoint:</span>
+              <p className="font-bold text-slate-400 truncate" title={ML_SERVICE_URL}>
+                srij1-esp32-accident-brain.hf.space
+              </p>
+            </div>
+          </div>
+
+          {errorMessage && (
+            <div className="p-2.5 bg-red-950/60 border border-red-500/40 rounded-xl text-red-200 text-[11px] flex items-center gap-2">
+              <AlertOctagon className="w-4 h-4 text-red-400 shrink-0" />
+              <span className="font-mono">{errorMessage}</span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Manual AI Incident Triggers for verification / simulation */}
       <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-3">
         <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400">
           Simulate Phone AI Detection Trigger
@@ -361,8 +533,8 @@ export const PhoneCamera: React.FC = () => {
         </div>
 
         {lastIncidentId && (
-          <div className="p-2.5 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-center text-xs text-emerald-400">
-            Incident dispatched successfully: <span className="font-mono font-bold">{lastIncidentId}</span>
+          <div className="p-2.5 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-center text-xs text-emerald-400 font-mono">
+            Active Incident: <strong className="text-white">{lastIncidentId}</strong>
           </div>
         )}
       </div>
