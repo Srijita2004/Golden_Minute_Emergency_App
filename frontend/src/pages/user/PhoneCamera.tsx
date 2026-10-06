@@ -15,7 +15,8 @@ export const PhoneCamera: React.FC = () => {
   const [lastScore, setLastScore] = useState<number | null>(null);
   const [lastIncidentId, setLastIncidentId] = useState<string | null>(null);
 
-  const ML_SERVICE_URL = import.meta.env.VITE_ML_SERVICE_URL || 'http://localhost:5000';
+  const ML_SERVICE_URL = import.meta.env.VITE_ML_SERVICE_URL || 'https://srij1-esp32-accident-brain.hf.space';
+
   const lastAlertTimeRef = useRef<number>(0);
   const monitoringTimerRef = useRef<any>(null);
 

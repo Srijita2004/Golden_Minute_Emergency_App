@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Camera, RefreshCw, AlertTriangle, Flame, ShieldAlert, MapPin, Eye } from 'lucide-react';
-import { api, Device } from '../../services/api';
+import { api, Device, getAssetUrl } from '../../services/api';
 import { IncidentMap } from '../../components/IncidentMap';
 
 export const CameraDetail: React.FC = () => {
@@ -117,13 +117,14 @@ export const CameraDetail: React.FC = () => {
       <div className="rounded-3xl bg-slate-900 border border-slate-800 overflow-hidden shadow-2xl relative">
         <div className="relative h-60 bg-black flex items-center justify-center overflow-hidden">
           <img
-            src={latestSnapshot}
+            src={getAssetUrl(latestSnapshot)}
             alt="Camera Snapshot"
             className="w-full h-full object-cover opacity-85"
             onError={(e: any) => {
-              e.target.src = '/uploads/mock_accident_sample.jpg';
+              e.target.src = getAssetUrl('/uploads/mock_accident_sample.jpg');
             }}
           />
+
           {/* Overlay HUD */}
           <div className="absolute top-3 left-3 flex items-center gap-2 bg-black/60 backdrop-blur-md px-2.5 py-1 rounded-lg border border-white/10">
             <span className="w-2 h-2 rounded-full bg-red-500 animate-ping" />

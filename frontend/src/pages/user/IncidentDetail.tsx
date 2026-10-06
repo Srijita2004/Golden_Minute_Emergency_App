@@ -4,7 +4,8 @@ import {
   AlertTriangle, ArrowLeft, MapPin, Clock, ShieldAlert,
   Activity, Camera, Smartphone, CheckCircle, ExternalLink
 } from 'lucide-react';
-import { api, Incident } from '../../services/api';
+import { api, Incident, getAssetUrl } from '../../services/api';
+
 import { IncidentMap } from '../../components/IncidentMap';
 
 export const IncidentDetail: React.FC = () => {
@@ -151,13 +152,14 @@ export const IncidentDetail: React.FC = () => {
           </div>
           <div className="h-64 bg-black flex items-center justify-center overflow-hidden">
             <img
-              src={primaryEvent?.image_url || '/uploads/mock_accident_sample.jpg'}
+              src={getAssetUrl(primaryEvent?.image_url)}
               alt="Accident Detection Snapshot"
               className="w-full h-full object-cover"
               onError={(e: any) => {
-                e.target.src = '/uploads/mock_accident_sample.jpg';
+                e.target.src = getAssetUrl('/uploads/mock_accident_sample.jpg');
               }}
             />
+
           </div>
         </div>
       )}

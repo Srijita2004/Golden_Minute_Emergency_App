@@ -1,4 +1,12 @@
-const API_BASE = '/api';
+const BACKEND_BASE = (import.meta.env.VITE_BACKEND_API_URL || '').replace(/\/+$/, '');
+const API_BASE = BACKEND_BASE ? `${BACKEND_BASE}/api` : '/api';
+
+export function getAssetUrl(path?: string | null): string {
+  if (!path) return BACKEND_BASE ? `${BACKEND_BASE}/uploads/mock_accident_sample.jpg` : '/uploads/mock_accident_sample.jpg';
+  if (path.startsWith('http://') || path.startsWith('https://')) return path;
+  const cleanPath = path.startsWith('/') ? path : `/${path}`;
+  return BACKEND_BASE ? `${BACKEND_BASE}${cleanPath}` : cleanPath;
+}
 
 export interface User {
   user_id: string;

@@ -41,8 +41,9 @@ class Settings(BaseModel):
     BLE_CHARACTERISTIC_UUID_PULSE: str = os.getenv("BLE_CHARACTERISTIC_UUID_PULSE", "<CONFIGURE_BLE_CHAR_PULSE_LATER>")
     BLE_CHARACTERISTIC_UUID_GPS: str = os.getenv("BLE_CHARACTERISTIC_UUID_GPS", "<CONFIGURE_BLE_CHAR_GPS_LATER>")
 
-    # Central ML Service URL (Points to ML_project API)
-    ML_SERVICE_URL: str = os.getenv("ML_SERVICE_URL", "http://127.0.0.1:5000")
+    # Central ML Service URL (Points to ML_project API on Hugging Face Spaces)
+    ML_SERVICE_URL: str = os.getenv("ML_SERVICE_URL", "https://srij1-esp32-accident-brain.hf.space")
+
 
     # Heartbeat & Offline thresholds
     DEVICE_OFFLINE_THRESHOLD_SECONDS: int = 90

@@ -38,10 +38,9 @@ const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";      // <-- Enter your Wi-Fi P
 const char* ML_PREDICT_URL = "https://srij1-esp32-accident-brain.hf.space/predict";
 
 
-// Golden Minute Application Backend API URL
-// Local example:   "http://192.168.1.100:8000/api"
-// Deployed example: "https://<your-backend-domain>/api"
-const char* GOLDEN_MINUTE_API_URL = "http://192.168.1.100:8000/api";
+// Golden Minute Application Backend API URL (Deployed on Render)
+const char* GOLDEN_MINUTE_API_URL = "https://golden-minute-emergency-backend.onrender.com/api";
+
 
 // Device Identification (Must match the registered Device ID in the Golden Minute Web App)
 const char* DEVICE_ID = "CAM-001";                     // <-- Match with device_id in MyDevices
