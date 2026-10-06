@@ -111,7 +111,9 @@ class DeviceService:
 
     @staticmethod
     def record_heartbeat(db: Session, device_id: str, req: DeviceHeartbeatRequest) -> Device:
-        device = db.query(Device).filter(Device.device_id == device_id).first()
+        device = db.query(Device).filter(
+            (Device.device_id == device_id) | (Device.hardware_identifier == device_id)
+        ).first()
         if not device:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found.")
         

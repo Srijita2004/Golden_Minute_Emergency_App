@@ -20,8 +20,8 @@ async def create_camera_incident(
     device_id: str = Form(...),
     detection_status: str = Form("ACCIDENT_DETECTED"),
     confidence: Optional[float] = Form(0.85),
-    latitude: Optional[float] = Form(None),
-    longitude: Optional[float] = Form(None),
+    latitude: Optional[str] = Form(None),
+    longitude: Optional[str] = Form(None),
     detected_at: Optional[str] = Form(None),
     image: Optional[UploadFile] = File(None),
     db: Session = Depends(get_db)
@@ -42,11 +42,25 @@ async def create_camera_incident(
         image_url = f"/uploads/{filename}"
 
         # If camera sends raw image, run through AI inference adapter
-        ai_result = ai_inference_provider.predict_image(content, incident_type_hint="ROAD_ACCIDENT")
+        ai_result = ai_inference_provider.predict_image(content, incident_type_hint=detection_status)
         if ai_result.get("detected"):
             confidence = ai_result.get("confidence", confidence)
 
     det_dt = datetime.datetime.fromisoformat(detected_at) if detected_at else None
+
+    # Safely parse coordinates without failing on empty strings or null
+    lat_val: Optional[float] = None
+    lon_val: Optional[float] = None
+    if latitude is not None and str(latitude).strip() not in ("", "null", "None"):
+        try:
+            lat_val = float(latitude)
+        except (ValueError, TypeError):
+            lat_val = None
+    if longitude is not None and str(longitude).strip() not in ("", "null", "None"):
+        try:
+            lon_val = float(longitude)
+        except (ValueError, TypeError):
+            lon_val = None
 
     incident = IncidentService.handle_camera_incident(
         db=db,
@@ -54,8 +68,8 @@ async def create_camera_incident(
         device_id=device_id,
         detection_status=detection_status,
         confidence=confidence or 0.85,
-        latitude=latitude,
-        longitude=longitude,
+        latitude=lat_val,
+        longitude=lon_val,
         image_url=image_url,
         detected_at=det_dt
     )

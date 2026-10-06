@@ -163,7 +163,15 @@ class IncidentService:
 
         # 4. Create Incident & Detection Event
         inc_id = IncidentService.generate_next_incident_id(db)
-        incident_type = "ROAD_ACCIDENT" if "ACCIDENT" in detection_status.upper() else "FIRE_ACCIDENT" if "FIRE" in detection_status.upper() else "FALL_ACCIDENT"
+        stat_upper = detection_status.upper()
+        if "FIRE" in stat_upper:
+            incident_type = "FIRE_ACCIDENT"
+        elif "FALL" in stat_upper:
+            incident_type = "FALL_ACCIDENT"
+        elif "ROAD" in stat_upper or "ACCIDENT" in stat_upper:
+            incident_type = "ROAD_ACCIDENT"
+        else:
+            incident_type = "ROAD_ACCIDENT"
 
         new_incident = Incident(
             incident_id=inc_id,

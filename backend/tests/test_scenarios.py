@@ -148,6 +148,70 @@ def test_scenario_2_camera_accident_flow():
     assert data["events"][0]["longitude"] == 88.3712
     assert data["events"][0]["image_url"] is not None
 
+def test_camera_incident_no_gps_and_hazard_mapping():
+    # Login as User
+    login_payload = {"email": "scenario1@test.com", "password": "Password@123"}
+    r = client.post("/api/auth/login", json=login_payload)
+    token = r.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # Register ESP32-CAM with hardware identifier
+    hw_id = f"ESP32-CAM-HW-NOGPS-{datetime.datetime.utcnow().timestamp()}"
+    cam_payload = {
+        "device_name": "No-GPS ESP32-CAM",
+        "device_type": "ESP32_CAM",
+        "connection_type": "WIFI",
+        "hardware_identifier": hw_id,
+        "pairing_code": "123456"
+    }
+    r = client.post("/api/devices/register", json=cam_payload, headers=headers)
+    assert r.status_code == 200
+    cam_device_id = r.json()["device_id"]
+
+    # 1. Test heartbeat using hardware_identifier instead of device_id
+    r_hb = client.post(f"/api/devices/{hw_id}/heartbeat", json={"battery_level": 100})
+    assert r_hb.status_code == 200
+    assert r_hb.json()["device_id"] == cam_device_id
+
+    # 2. Camera incident with NO GPS coordinates (latitude and longitude omitted)
+    event_id_no_gps = f"EVENT-CAM-NOGPS-{datetime.datetime.utcnow().timestamp()}"
+    form_no_gps = {
+        "event_id": event_id_no_gps,
+        "device_id": cam_device_id,
+        "detection_status": "ACCIDENT_DETECTED",
+        "confidence": "0.89"
+    }
+    r = client.post("/api/incidents/camera", data=form_no_gps)
+    assert r.status_code == 200
+    inc_no_gps = r.json()
+    assert inc_no_gps["events"][0]["location_status"] == "LOCATION UNAVAILABLE"
+    assert inc_no_gps["events"][0]["latitude"] is None
+    assert inc_no_gps["events"][0]["longitude"] is None
+
+    # 3. Fire Hazard Mapping: FIRE_DETECTED -> FIRE_ACCIDENT
+    event_id_fire = f"EVENT-CAM-FIRE-{datetime.datetime.utcnow().timestamp()}"
+    form_fire = {
+        "event_id": event_id_fire,
+        "device_id": cam_device_id,
+        "detection_status": "FIRE_DETECTED",
+        "confidence": "0.95"
+    }
+    r = client.post("/api/incidents/camera", data=form_fire)
+    assert r.status_code == 200
+    assert r.json()["incident_type"] == "FIRE_ACCIDENT"
+
+    # 4. Fall Hazard Mapping: FALL_DETECTED -> FALL_ACCIDENT
+    event_id_fall = f"EVENT-CAM-FALL-{datetime.datetime.utcnow().timestamp()}"
+    form_fall = {
+        "event_id": event_id_fall,
+        "device_id": cam_device_id,
+        "detection_status": "FALL_DETECTED",
+        "confidence": "0.88"
+    }
+    r = client.post("/api/incidents/camera", data=form_fall)
+    assert r.status_code == 200
+    assert r.json()["incident_type"] == "FALL_ACCIDENT"
+
 # =========================================================================
 # TEST SCENARIO 3: PHONE AI CAMERA & PHONE GPS
 # =========================================================================
