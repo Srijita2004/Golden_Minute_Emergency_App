@@ -222,7 +222,7 @@ export const PhoneCamera: React.FC = () => {
       // - Fast-track: High-confidence accident (>= 0.75) triggers rapid immediate dispatch
       // - Temporal smoothing: Moderate confidence (< 0.75) requires at least 2 matching positive frames in the last 3 frames
       const matchingFrames = slidingWindowRef.current.filter(
-        f => f.accident && f.type === incType && f.score >= 0.45
+        f => f.accident && f.type === incType && f.score >= 0.38
       );
       const isFastTrack = currentScore >= 0.75;
       const isTemporallyConfirmed = matchingFrames.length >= 2;
